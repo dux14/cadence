@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/* Class-based dark mode (toggled on <html class="dark">). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f5f8fc;
+  --surface: #ffffff;
+  --foreground: #374049;
+  --muted: #9fa8b2;
+  --border: #e7eef6;
+  --primary: #a9c8ee;
+  --primary-ink: #2c4a6b;
+  --accent: #9ed9c5;
+  --accent-ink: #2f7a66;
+  --tag-bg: #dcf1ea;
+  --tag-fg: #2f7a66;
+  --danger: #e08a8a;
+  --radius: 14px;
+}
+
+.dark {
+  --background: #0f151c;
+  --surface: #18212b;
+  --foreground: #e6ecf2;
+  --muted: #8593a1;
+  --border: #263240;
+  --primary: #a9c8ee;
+  --primary-ink: #0f151c;
+  --accent: #9ed9c5;
+  --accent-ink: #0f151c;
+  --tag-bg: #1e3a33;
+  --tag-fg: #9ed9c5;
+  --danger: #e08a8a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-ink: var(--primary-ink);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-tag-bg: var(--tag-bg);
+  --color-tag-fg: var(--tag-fg);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --radius-card: var(--radius);
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  overscroll-behavior-y: none;
+}
+
+/* Respect the safe areas on notched phones. */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}

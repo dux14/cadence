@@ -1,0 +1,25 @@
+{
+  "name": "Cadence",
+  "short_name": "Cadence",
+  "description": "Your daily cadence — tasks, projects, and ideas in one calm place.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f8fc",
+  "theme_color": "#a9c8ee",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

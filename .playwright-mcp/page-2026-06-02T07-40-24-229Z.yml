@@ -1,0 +1,74 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - main [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e6]:
+            - img [ref=e8]
+            - generic [ref=e11]:
+              - heading "Today" [level=1] [ref=e12]
+              - paragraph [ref=e13]: Tue, Jun 2
+          - generic [ref=e14]:
+            - link "History" [ref=e15] [cursor=pointer]:
+              - /url: /history
+              - img [ref=e16]
+            - button "Toggle light or dark theme" [active] [ref=e20]:
+              - img [ref=e135]
+        - generic [ref=e24]:
+          - button "Today4" [ref=e55]
+          - button "Tomorrow1" [ref=e56]
+          - button "This Week3" [ref=e57]
+        - list [ref=e58]:
+          - listitem [ref=e59]:
+            - generic [ref=e60]:
+              - button "Mark as done" [ref=e61]:
+                - img [ref=e62]
+              - button "Actualizar el abrazo HKN" [ref=e64]:
+                - generic [ref=e65]: Actualizar el abrazo
+                - generic [ref=e69]: HKN
+              - button "Drag to reorder" [ref=e70]:
+                - img [ref=e71]
+          - listitem [ref=e78]:
+            - generic [ref=e79]:
+              - button "Mark as done" [ref=e80]:
+                - img [ref=e81]
+              - button "Ajustes Dei Verbum" [ref=e83]:
+                - generic [ref=e84]: Ajustes
+                - generic [ref=e88]: Dei Verbum
+              - button "Drag to reorder" [ref=e89]:
+                - img [ref=e90]
+          - listitem [ref=e97]:
+            - generic [ref=e98]:
+              - button "Mark as done" [ref=e99]:
+                - img [ref=e100]
+              - button "Terminar cosas de la U Uni" [ref=e102]:
+                - generic [ref=e103]: Terminar cosas de la U
+                - generic [ref=e107]: Uni
+              - button "Drag to reorder" [ref=e108]:
+                - img [ref=e109]
+          - listitem [ref=e116]:
+            - generic [ref=e117]:
+              - button "Mark as done" [ref=e118]:
+                - img [ref=e119]
+              - button "Ropa Rutina" [ref=e121]:
+                - generic [ref=e122]: Ropa
+                - generic [ref=e126]: Rutina
+              - button "Drag to reorder" [ref=e127]:
+                - img [ref=e128]
+        - button "Add task" [ref=e36]:
+          - img [ref=e37]
+    - navigation [ref=e38]:
+      - generic [ref=e39]:
+        - link "Today" [ref=e40] [cursor=pointer]:
+          - /url: /
+          - img [ref=e41]
+          - text: Today
+        - link "Projects" [ref=e44] [cursor=pointer]:
+          - /url: /projects
+          - img [ref=e45]
+          - text: Projects
+        - link "Histórico" [ref=e50] [cursor=pointer]:
+          - /url: /historico
+          - img [ref=e51]
+          - text: Histórico
+  - alert [ref=e54]
