@@ -6,7 +6,9 @@
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" fill="url(#g)"/>
-  <!-- The C-Forward mark: the Cadence "C" closed by a forward chevron, one continuous stroke. -->
-  <path d="M 641 358 A 230 230 0 1 0 641 666 M 641 358 L 768 512 L 641 666"
-        fill="none" stroke="#ffffff" stroke-width="112" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Maskable variant: mark scaled to 76% so it survives Android's circular safe-zone crop. -->
+  <g transform="translate(122,122) scale(0.76)">
+    <path d="M 641 358 A 230 230 0 1 0 641 666 M 641 358 L 768 512 L 641 666"
+          fill="none" stroke="#ffffff" stroke-width="112" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
 </svg>

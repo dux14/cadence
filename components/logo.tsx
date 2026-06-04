@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-/** The Momentum mark — forward chevrons on the Sky & Mint gradient. */
+/** The C-Forward mark — the Cadence "C" closed by a forward chevron, one continuous stroke, on the Sky & Mint gradient. */
 export function Logo({
   size = 32,
   rounded = true,
@@ -20,26 +20,18 @@ export function Logo({
       )}
     >
       <svg
-        width={size * 0.56}
-        height={size * 0.52}
-        viewBox="0 0 72 68"
+        width={size * 0.72}
+        height={size * 0.72}
+        viewBox="0 0 1024 1024"
         fill="none"
         aria-hidden
       >
         <path
-          d="M16 18l18 16-18 16"
+          d="M 641 358 A 230 230 0 1 0 641 666 M 641 358 L 768 512 L 641 666"
           stroke="#fff"
-          strokeWidth="8"
+          strokeWidth="112"
           strokeLinecap="round"
           strokeLinejoin="round"
-        />
-        <path
-          d="M38 18l18 16-18 16"
-          stroke="#fff"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          opacity="0.55"
         />
       </svg>
     </span>

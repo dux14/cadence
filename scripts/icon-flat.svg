@@ -1,0 +1,6 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Flat favicon variant: solid background and a thicker stroke so the mark stays legible at 16px. -->
+  <rect width="1024" height="1024" fill="#5FA8D6"/>
+  <path d="M 655 334 A 255 255 0 1 0 655 690 M 655 334 L 790 512 L 655 690"
+        fill="none" stroke="#ffffff" stroke-width="150" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
