@@ -32,7 +32,7 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="px-4 pt-5">
+    <div className="mx-auto w-full max-w-2xl px-4 pt-5 pb-10">
       <header className="mb-4 flex items-center gap-2">
         <Link
           href="/"

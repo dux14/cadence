@@ -2,14 +2,24 @@
 
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { ArrowLeft, Lightbulb, ListChecks, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Lightbulb,
+  ListChecks,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { db } from "@/lib/db/schema";
-import { addIdea, deleteProject } from "@/lib/db/queries";
+import { addIdea, deleteProject, updateProject } from "@/lib/db/queries";
+import { PROJECT_COLORS } from "@/lib/constants";
 import { TaskList } from "./task-list";
-import { IdeaRow } from "./idea-row";
+import { IdeaList } from "./idea-list";
+import { Sheet, SheetContent } from "./ui/sheet";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
-import type { Project } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import type { Project, ProjectKind } from "@/lib/types";
 
 export function ProjectDetail({
   projectId,
@@ -41,7 +51,25 @@ export function ProjectDetail({
   );
   const [idea, setIdea] = useState("");
 
+  const [editOpen, setEditOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("");
+  const [kind, setKind] = useState<ProjectKind>("active");
+
   if (!project) return null;
+
+  function openEdit() {
+    setName(project!.name);
+    setColor(project!.color);
+    setKind(project!.kind);
+    setEditOpen(true);
+  }
+
+  async function saveEdit() {
+    if (!name.trim()) return;
+    await updateProject(projectId, { name, color, kind });
+    setEditOpen(false);
+  }
 
   const projectMap = new Map<number, Project>([[project.id!, project]]);
   const sortedTasks = tasks
@@ -60,7 +88,7 @@ export function ProjectDetail({
   }
 
   return (
-    <div className="px-4 pt-5">
+    <div className="mx-auto w-full max-w-2xl px-4 pt-5 pb-10">
       <header className="mb-5 flex items-center gap-2">
         <button
           onClick={onBack}
@@ -78,6 +106,13 @@ export function ProjectDetail({
         <h1 className="flex-1 truncate font-display text-lg font-bold">
           {project.name}
         </h1>
+        <button
+          onClick={openEdit}
+          aria-label="Edit project"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted transition hover:bg-border/50 hover:text-foreground"
+        >
+          <Pencil size={16} />
+        </button>
         <button
           onClick={() => {
             if (
@@ -137,13 +172,63 @@ export function ProjectDetail({
             No ideas parked. Jot improvements here; promote any into a task.
           </p>
         ) : (
-          <div className="flex flex-col gap-2">
-            {sortedIdeas.map((i) => (
-              <IdeaRow key={i.id} idea={i} />
-            ))}
-          </div>
+          <IdeaList ideas={sortedIdeas} />
         )}
       </section>
+
+      <Sheet open={editOpen} onOpenChange={setEditOpen}>
+        <SheetContent title="Edit project">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Project or area name…"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void saveEdit();
+            }}
+          />
+          <p className="mt-4 mb-1.5 text-[12px] font-medium text-muted">Color</p>
+          <div className="flex flex-wrap gap-2">
+            {PROJECT_COLORS.map((c) => (
+              <button
+                key={c}
+                onClick={() => setColor(c)}
+                aria-label={`Color ${c}`}
+                className={cn(
+                  "h-8 w-8 rounded-full border-2 transition",
+                  color === c
+                    ? "scale-110 border-foreground"
+                    : "border-transparent",
+                )}
+                style={{ background: c }}
+              />
+            ))}
+          </div>
+          <p className="mt-4 mb-1.5 text-[12px] font-medium text-muted">Kind</p>
+          <div className="flex gap-1.5">
+            {(["active", "area"] as ProjectKind[]).map((k) => (
+              <button
+                key={k}
+                onClick={() => setKind(k)}
+                className={cn(
+                  "flex-1 rounded-full px-2 py-1.5 text-[12px] font-medium transition",
+                  kind === k
+                    ? "bg-primary text-primary-ink"
+                    : "border border-border text-muted",
+                )}
+              >
+                {k === "active" ? "Project" : "Life area"}
+              </button>
+            ))}
+          </div>
+          <Button
+            className="mt-5 w-full"
+            onClick={() => void saveEdit()}
+            disabled={!name.trim()}
+          >
+            Save
+          </Button>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

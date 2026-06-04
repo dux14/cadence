@@ -36,6 +36,9 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // Android: shrink the layout viewport when the keyboard shows, so
+  // bottom-anchored sheets stay visible. iOS ignores this; see ui/sheet.tsx.
+  interactiveWidget: "resizes-content",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f5f8fc" },
     { media: "(prefers-color-scheme: dark)", color: "#0f151c" },
@@ -60,9 +63,12 @@ export default function RootLayout({
       <body className="min-h-full antialiased">
         <SwRegister />
         <AppShell>
-          <div className="mx-auto flex min-h-dvh max-w-md flex-col">
-            <main className="flex-1">{children}</main>
+          {/* h-dvh + scrolling <main>: lists scroll under the fixed nav. */}
+          <div className="mx-auto flex h-dvh max-w-md flex-col md:max-w-3xl md:flex-row xl:max-w-5xl">
             <BottomNav />
+            <main className="order-first min-w-0 flex-1 overflow-y-auto overscroll-contain md:order-none">
+              {children}
+            </main>
           </div>
         </AppShell>
       </body>

@@ -13,12 +13,15 @@ import {
 import { Empty } from "@/components/empty";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { BacklogItem } from "@/lib/types";
 
 export default function HistoricoPage() {
   const router = useRouter();
   const items = useLiveQuery(() => db.backlog.orderBy("order").toArray(), [], []);
   const [text, setText] = useState("");
+  // Creation feedback baseline: items created after page mount pulse mint.
+  const [loadedAt] = useState(() => Date.now());
 
   async function submit() {
     if (!text.trim()) return;
@@ -32,7 +35,7 @@ export default function HistoricoPage() {
   }
 
   return (
-    <div className="px-4 pt-5">
+    <div className="mx-auto w-full max-w-2xl px-4 pt-5 pb-10">
       <h1 className="font-display text-xl font-bold">Histórico</h1>
       <p className="mb-4 mt-1 text-[13px] text-muted">
         Future project ideas parked so you don’t forget. Promote one into a real
@@ -69,7 +72,10 @@ export default function HistoricoPage() {
           {items.map((it) => (
             <div
               key={it.id}
-              className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2.5"
+              className={cn(
+                "flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2.5",
+                it.createdAt > loadedAt - 1500 && "row-arrive",
+              )}
             >
               <p className="min-w-0 flex-1 text-[14px]">{it.title}</p>
               <button

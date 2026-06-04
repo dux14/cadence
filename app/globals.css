@@ -61,6 +61,8 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
   overscroll-behavior-y: none;
+  /* Guard: stray wide content (long links, drag previews) must never pan the page. */
+  overflow-x: clip;
 }
 
 /* Respect the safe areas on notched phones. */
@@ -69,4 +71,29 @@ body {
 }
 .safe-top {
   padding-top: env(safe-area-inset-top);
+}
+
+/* Newly created rows slide in with a brief mint pulse (creation feedback). */
+@keyframes row-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    background-color: color-mix(in srgb, var(--accent) 30%, var(--surface));
+  }
+  40% {
+    opacity: 1;
+    transform: none;
+    background-color: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  }
+  to {
+    background-color: var(--surface);
+  }
+}
+.row-arrive {
+  animation: row-arrive 1.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-arrive {
+    animation: none;
+  }
 }

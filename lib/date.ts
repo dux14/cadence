@@ -14,6 +14,13 @@ export function formatDayLabel(d: Date = new Date()): string {
   });
 }
 
+/** "HH:mm" 24h → "6:00 am". */
+export function formatTime(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  const hour = h % 12 || 12;
+  return `${hour}:${String(m).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`;
+}
+
 export function formatHistoryDate(key: string): string {
   const [y, m, dd] = key.split("-").map(Number);
   return new Date(y, m - 1, dd).toLocaleDateString(undefined, {

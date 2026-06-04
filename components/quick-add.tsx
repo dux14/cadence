@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Clock, Plus } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db/schema";
 import { addTask } from "@/lib/db/queries";
@@ -23,6 +23,7 @@ export function QuickAdd({
   const [text, setText] = useState("");
   const [bucket, setBucket] = useState<Bucket>(defaultBucket);
   const [projectId, setProjectId] = useState<number | null>(defaultProjectId);
+  const [time, setTime] = useState("");
   const projects = useLiveQuery(
     () => db.projects.orderBy("order").toArray(),
     [],
@@ -33,13 +34,14 @@ export function QuickAdd({
     setBucket(defaultBucket);
     setProjectId(defaultProjectId);
     setText("");
+    setTime("");
     setOpen(true);
   }
 
   async function submit() {
     const { title, links } = extractLinks(text);
     if (!title.trim()) return;
-    await addTask({ title, links, projectId, bucket });
+    await addTask({ title, links, projectId, bucket, time: time || null });
     setOpen(false);
   }
 
@@ -48,7 +50,7 @@ export function QuickAdd({
       <button
         onClick={openSheet}
         aria-label="Add task"
-        className="fixed bottom-24 right-[max(1rem,calc(50%-13rem))] z-30 grid h-14 w-14 place-items-center rounded-full bg-primary text-primary-ink shadow-lg shadow-primary/40 transition active:scale-95"
+        className="fixed bottom-24 right-[max(1rem,calc(50%-13rem))] z-30 grid h-14 w-14 place-items-center rounded-full bg-primary text-primary-ink shadow-lg shadow-primary/40 transition active:scale-95 md:bottom-8 md:right-[max(2rem,calc(50%-22.5rem))] xl:right-[calc(50%-30.5rem)]"
       >
         <Plus size={26} />
       </button>
@@ -113,6 +115,27 @@ export function QuickAdd({
                 {p.name}
               </button>
             ))}
+          </div>
+
+          <div className="mt-3 flex items-center gap-2">
+            <label className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-[12px] text-muted">
+              <Clock size={12} />
+              <input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                aria-label="Time of day"
+                className="bg-transparent text-foreground outline-none"
+              />
+            </label>
+            {time && (
+              <button
+                onClick={() => setTime("")}
+                className="text-[12px] text-muted transition hover:text-foreground"
+              >
+                Clear
+              </button>
+            )}
           </div>
 
           <Button

@@ -23,6 +23,8 @@ export interface Task {
   order: number;
   createdAt: number;
   completedAt?: number | null;
+  /** Optional time of day, "HH:mm" 24h. Not indexed — no Dexie version bump. */
+  time?: string | null;
   /** Rolled over from a previous day while still open. */
   carried?: boolean;
   /** Date the task was placed into Today, e.g. "2026-06-02". */

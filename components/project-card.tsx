@@ -1,5 +1,9 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import type { Project } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export function ProjectCard({
   project,
@@ -10,10 +14,16 @@ export function ProjectCard({
   openTasks: number;
   ideas: number;
 }) {
+  // Creation feedback: cards mounting right after their createdAt pulse mint.
+  // Lazy state: evaluated once per mount, keeping render pure.
+  const [isNew] = useState(() => Date.now() - project.createdAt < 1500);
   return (
     <Link
       href={`/projects?p=${project.id}`}
-      className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-4 transition active:scale-[.99]"
+      className={cn(
+        "flex flex-col gap-3 rounded-2xl border border-border bg-surface p-4 transition active:scale-[.99]",
+        isNew && "row-arrive",
+      )}
     >
       <div className="flex items-start justify-between">
         <span

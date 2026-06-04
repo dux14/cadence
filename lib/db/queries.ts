@@ -20,8 +20,14 @@ export async function addProject(name: string, kind: ProjectKind): Promise<numbe
   });
 }
 
-export async function renameProject(id: number, name: string): Promise<void> {
-  await db.projects.update(id, { name: name.trim() });
+export async function updateProject(
+  id: number,
+  changes: { name?: string; color?: string; kind?: ProjectKind },
+): Promise<void> {
+  await db.projects.update(id, {
+    ...changes,
+    ...(changes.name !== undefined ? { name: changes.name.trim() } : {}),
+  });
 }
 
 export async function deleteProject(id: number): Promise<void> {
@@ -41,6 +47,7 @@ export async function addTask(input: {
   links?: string[];
   projectId?: number | null;
   bucket: Bucket;
+  time?: string | null;
 }): Promise<number> {
   const max = await maxTaskOrder(input.bucket);
   return db.tasks.add({
@@ -48,6 +55,7 @@ export async function addTask(input: {
     links: input.links ?? [],
     projectId: input.projectId ?? null,
     bucket: input.bucket,
+    time: input.time ?? null,
     status: "open",
     order: max + 1,
     createdAt: Date.now(),
@@ -66,8 +74,14 @@ export async function toggleTask(task: Task): Promise<void> {
   });
 }
 
-export async function updateTaskTitle(id: number, title: string): Promise<void> {
-  await db.tasks.update(id, { title: title.trim() });
+export async function updateTask(
+  id: number,
+  changes: { title?: string; projectId?: number | null; time?: string | null },
+): Promise<void> {
+  await db.tasks.update(id, {
+    ...changes,
+    ...(changes.title !== undefined ? { title: changes.title.trim() } : {}),
+  });
 }
 
 export async function moveTask(id: number, bucket: Bucket): Promise<void> {
@@ -104,8 +118,20 @@ export async function addIdea(projectId: number, text: string): Promise<number> 
   });
 }
 
+export async function updateIdeaText(id: number, text: string): Promise<void> {
+  await db.ideas.update(id, { text: text.trim() });
+}
+
 export async function deleteIdea(id: number): Promise<void> {
   await db.ideas.delete(id);
+}
+
+export async function reorderIdeas(orderedIds: number[]): Promise<void> {
+  await db.transaction("rw", db.ideas, async () => {
+    await Promise.all(
+      orderedIds.map((id, i) => db.ideas.update(id, { order: i })),
+    );
+  });
 }
 
 /** Promote an idea into a real task in the chosen bucket. */

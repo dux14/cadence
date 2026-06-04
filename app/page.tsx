@@ -41,19 +41,23 @@ export default function TodayPage() {
   const projectMap = new Map<number, Project>(
     projects.map((p) => [p.id!, p] as const),
   );
+  // Open before done; timed tasks first (ascending), untimed keep manual order.
+  const timeCmp = (a?: string | null, b?: string | null) =>
+    a && b ? a.localeCompare(b) : Number(!!b) - Number(!!a);
   const sorted = tasks
     .slice()
     .sort(
       (a, b) =>
         Number(a.status === "done") - Number(b.status === "done") ||
+        timeCmp(a.time, b.time) ||
         a.order - b.order,
     );
 
   return (
-    <div className="px-4 pt-5">
+    <div className="mx-auto w-full max-w-2xl px-4 pt-5 pb-28 md:pb-10">
       <header className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <Logo size={30} />
+          <Logo size={30} className="md:hidden" />
           <div>
             <h1 className="font-display text-xl font-bold leading-none">
               Today
