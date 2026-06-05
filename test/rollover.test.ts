@@ -25,6 +25,8 @@ describe("runRollover v2", () => {
 
     const done = (await db.tasks.get(doneId))!;
     expect(done.archived).toBe(true);
+    expect(done.archivedAt).toBeGreaterThan(0);
+    expect(done.updatedAt).toBeGreaterThan(0);
 
     const blocked = (await db.tasks.get(blockedId))!;
     expect(blocked.status).toBe("blocked"); // preserved
@@ -49,5 +51,18 @@ describe("runRollover v2", () => {
   it("is a no-op when already run today", async () => {
     await setMeta("lastOpenedDay", localDateKey());
     expect(await runRollover()).toBe(false);
+  });
+
+  it("does not re-stamp tasks already carried", async () => {
+    const id = await addTask({ title: "old", bucket: "today" });
+    await db.tasks.update(id, { carried: true });
+    const before = (await db.tasks.get(id))!.updatedAt;
+    await setMeta("lastOpenedDay", "2000-01-01");
+
+    await runRollover();
+
+    const after = (await db.tasks.get(id))!;
+    expect(after.carried).toBe(true);
+    expect(after.updatedAt).toBe(before);
   });
 });

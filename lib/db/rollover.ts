@@ -2,7 +2,7 @@ import { db, getMeta, setMeta } from "@/lib/db/schema";
 import { localDateKey } from "@/lib/date";
 
 /**
- * Replays every day boundary crossed since the app was last opened:
+ * Single pass over the day boundary since the app was last opened:
  *  - done "today" tasks      -> archived (kept for History)
  *  - non-done "today" tasks  -> stay in Today, flagged `carried` (status kept)
  *  - "tomorrow" tasks         -> promoted to Today
