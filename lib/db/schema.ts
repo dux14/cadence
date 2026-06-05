@@ -1,5 +1,11 @@
 import Dexie, { type Table } from "dexie";
 import type { BacklogItem, Idea, Project, Task } from "@/lib/types";
+import {
+  migrateBacklogV1,
+  migrateIdeaV1,
+  migrateProjectV1,
+  migrateTaskV1,
+} from "@/lib/db/migrations";
 
 export interface Meta {
   key: string;
@@ -15,6 +21,7 @@ export class CadenceDB extends Dexie {
 
   constructor() {
     super("cadence");
+
     this.version(1).stores({
       projects: "++id, kind, order, archivedAt",
       tasks: "++id, bucket, status, projectId, dayKey, completedAt",
@@ -22,6 +29,44 @@ export class CadenceDB extends Dexie {
       backlog: "++id, order",
       meta: "&key",
     });
+
+    this.version(2)
+      .stores({
+        projects: "++id, &guid, kind, order, archivedAt, updatedAt, deletedAt",
+        tasks:
+          "++id, &guid, bucket, status, projectId, dayKey, completedAt, due, updatedAt, deletedAt",
+        ideas: "++id, &guid, projectId, status, updatedAt, deletedAt",
+        backlog: "++id, &guid, order, updatedAt, deletedAt",
+        meta: "&key",
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table("projects")
+          .toCollection()
+          .modify((p) => {
+            Object.assign(p, migrateProjectV1({ ...p }));
+          });
+        await tx
+          .table("tasks")
+          .toCollection()
+          .modify((t) => {
+            const next = migrateTaskV1({ ...t });
+            for (const k of Object.keys(t)) delete (t as Record<string, unknown>)[k];
+            Object.assign(t, next);
+          });
+        await tx
+          .table("ideas")
+          .toCollection()
+          .modify((i) => {
+            Object.assign(i, migrateIdeaV1({ ...i }));
+          });
+        await tx
+          .table("backlog")
+          .toCollection()
+          .modify((b) => {
+            Object.assign(b, migrateBacklogV1({ ...b }));
+          });
+      });
   }
 }
 

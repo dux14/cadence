@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import {
   migrateTaskV1,
   migrateIdeaV1,
   migrateBacklogV1,
   migrateProjectV1,
 } from "@/lib/db/migrations";
+import Dexie from "dexie";
+import { db } from "@/lib/db/schema";
 
 describe("migrateTaskV1", () => {
   it("maps open -> todo", () => {
@@ -226,5 +228,104 @@ describe("migrateProjectV1", () => {
     expect(out.guid).toMatch(/^[0-9a-f-]{36}$/i);
     expect(typeof out.updatedAt).toBe("number");
     expect(out.deletedAt ?? null).toBeNull();
+  });
+});
+
+describe("Dexie v1 -> v2 in-place upgrade", () => {
+  beforeEach(async () => {
+    if (db.isOpen()) db.close();
+    await Dexie.delete("cadence");
+  });
+
+  it("preserves row counts and converts fields without loss", async () => {
+    // 1. Seed a v1-shaped database under the production DB name.
+    const v1 = new Dexie("cadence");
+    v1.version(1).stores({
+      projects: "++id, kind, order, archivedAt",
+      tasks: "++id, bucket, status, projectId, dayKey, completedAt",
+      ideas: "++id, projectId, status",
+      backlog: "++id, order",
+      meta: "&key",
+    });
+    await v1.open();
+    await v1.table("projects").add({
+      name: "HKN",
+      kind: "active",
+      color: "#A9C8EE",
+      order: 0,
+      createdAt: 100,
+      archivedAt: null,
+    });
+    await v1.table("tasks").bulkAdd([
+      {
+        title: "open one",
+        links: [],
+        projectId: 1,
+        bucket: "today",
+        status: "open",
+        order: 0,
+        createdAt: 100,
+        time: "15:00",
+        dayKey: "2026-06-02",
+        carried: false,
+        archived: false,
+      },
+      {
+        title: "done one",
+        links: ["https://a.com"],
+        bucket: "week",
+        status: "done",
+        order: 1,
+        createdAt: 100,
+        completedAt: 150,
+        archived: false,
+      },
+    ]);
+    await v1.table("ideas").add({
+      projectId: 1,
+      text: "idea",
+      status: "open",
+      order: 0,
+      createdAt: 100,
+    });
+    await v1.table("backlog").add({
+      title: "parked",
+      order: 0,
+      createdAt: 100,
+      promotedProjectId: null,
+    });
+    v1.close();
+
+    // 2. Open the production db (version 2) -> triggers upgrade.
+    await db.open();
+
+    // 3. Counts preserved.
+    expect(await db.tasks.count()).toBe(2);
+    expect(await db.projects.count()).toBe(1);
+    expect(await db.ideas.count()).toBe(1);
+    expect(await db.backlog.count()).toBe(1);
+
+    // 4. open -> todo, time -> due with hour.
+    const open = await db.tasks.where("status").equals("todo").first();
+    expect(open?.title).toBe("open one");
+    expect(open?.dueHasTime).toBe(true);
+    expect(new Date(open!.due!).getHours()).toBe(15);
+    expect((open as Record<string, unknown>).time).toBeUndefined();
+
+    // 5. done preserved.
+    const done = await db.tasks.where("status").equals("done").first();
+    expect(done?.status).toBe("done");
+
+    // 6. Unique guids across all tasks.
+    const tasks = await db.tasks.toArray();
+    const guids = new Set(tasks.map((t) => t.guid));
+    expect(guids.size).toBe(tasks.length);
+    tasks.forEach((t) => expect(typeof t.guid).toBe("string"));
+
+    // 7. New collections gained links/subtasks.
+    const idea = await db.ideas.toArray();
+    expect(idea[0].links).toEqual([]);
+    expect(idea[0].subtasks).toEqual([]);
+    expect(idea[0].guid).toBeTruthy();
   });
 });
