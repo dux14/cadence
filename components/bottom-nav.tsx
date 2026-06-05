@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarCheck, LayoutGrid, Sparkles } from "lucide-react";
+import { CalendarCheck, LayoutGrid, Settings, Sparkles } from "lucide-react";
 import { Logo } from "./logo";
 import { cn } from "@/lib/utils";
 
@@ -10,6 +10,7 @@ const tabs = [
   { href: "/", label: "Today", icon: CalendarCheck },
   { href: "/projects", label: "Projects", icon: LayoutGrid },
   { href: "/historico", label: "Histórico", icon: Sparkles },
+  { href: "/settings", label: "Ajustes", icon: Settings },
 ];
 
 /** Bottom tab bar on mobile; side rail from md up. <main> scrolls, not us. */
