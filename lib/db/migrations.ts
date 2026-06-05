@@ -47,9 +47,12 @@ interface ProjectV1 {
   archivedAt?: number | null;
 }
 
-/** Local "HH:mm" + dayKey -> epoch ms in local time. */
-function timeToDue(time: string, dayKey: string | null | undefined): number {
-  const [h, m] = time.split(":").map(Number);
+/** Local "HH:mm" + dayKey -> epoch ms in local time. Null on malformed time. */
+function timeToDue(time: string, dayKey: string | null | undefined): number | null {
+  const [hStr, mStr] = time.split(":");
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
   let y: number, mo: number, d: number;
   if (dayKey) {
     const [yy, mm, dd] = dayKey.split("-").map(Number);
@@ -62,11 +65,13 @@ function timeToDue(time: string, dayKey: string | null | undefined): number {
     mo = now.getMonth();
     d = now.getDate();
   }
-  return new Date(y, mo, d, h, m, 0, 0).getTime();
+  const due = new Date(y, mo, d, h, m, 0, 0).getTime();
+  return isNaN(due) ? null : due;
 }
 
 export function migrateTaskV1(t: TaskV1): Task {
   const hasTime = typeof t.time === "string" && t.time.length > 0;
+  const due = hasTime ? timeToDue(t.time as string, t.dayKey) : null;
   return {
     id: t.id,
     guid: newGuid(),
@@ -80,8 +85,8 @@ export function migrateTaskV1(t: TaskV1): Task {
     createdAt: t.createdAt,
     updatedAt: t.createdAt,
     completedAt: t.completedAt ?? null,
-    due: hasTime ? timeToDue(t.time as string, t.dayKey) : null,
-    dueHasTime: hasTime,
+    due,
+    dueHasTime: due != null,
     carried: t.carried ?? false,
     dayKey: t.dayKey ?? null,
     archived: t.archived ?? false,

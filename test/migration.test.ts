@@ -135,6 +135,38 @@ describe("migrateTaskV1", () => {
     expect(out.archived).toBe(true);
     expect(out.archivedAt).toBe(200);
   });
+
+  it("nulls due when time is garbage", () => {
+    const out = migrateTaskV1({
+      id: 9,
+      title: "x",
+      links: [],
+      bucket: "today",
+      status: "open",
+      order: 0,
+      createdAt: 100,
+      time: "abc",
+      dayKey: "2026-06-02",
+    });
+    expect(out.due ?? null).toBeNull();
+    expect(out.dueHasTime).toBe(false);
+  });
+
+  it("nulls due when time is out of range", () => {
+    const out = migrateTaskV1({
+      id: 10,
+      title: "x",
+      links: [],
+      bucket: "today",
+      status: "open",
+      order: 0,
+      createdAt: 100,
+      time: "25:99",
+      dayKey: "2026-06-02",
+    });
+    expect(out.due ?? null).toBeNull();
+    expect(out.dueHasTime).toBe(false);
+  });
 });
 
 describe("migrateIdeaV1", () => {
