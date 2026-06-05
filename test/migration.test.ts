@@ -67,7 +67,7 @@ describe("migrateTaskV1", () => {
       createdAt: 100,
       time: "09:30",
       dayKey: "2026-06-02",
-    }) as Record<string, unknown>;
+    }) as unknown as Record<string, unknown>;
     expect("time" in out).toBe(false);
   });
 
@@ -310,7 +310,7 @@ describe("Dexie v1 -> v2 in-place upgrade", () => {
     expect(open?.title).toBe("open one");
     expect(open?.dueHasTime).toBe(true);
     expect(new Date(open!.due!).getHours()).toBe(15);
-    expect((open as Record<string, unknown>).time).toBeUndefined();
+    expect((open as unknown as Record<string, unknown>).time).toBeUndefined();
 
     // 5. done preserved.
     const done = await db.tasks.where("status").equals("done").first();

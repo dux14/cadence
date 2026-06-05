@@ -16,8 +16,7 @@ describe("newGuid", () => {
 
   it("falls back to getRandomValues when randomUUID is unavailable", () => {
     const original = crypto.randomUUID;
-    // @ts-expect-error force the fallback path
-    delete (crypto as { randomUUID?: unknown }).randomUUID;
+    Reflect.deleteProperty(crypto, "randomUUID");
     try {
       const g = newGuid();
       expect(g).toMatch(
