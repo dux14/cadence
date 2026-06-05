@@ -1,6 +1,7 @@
 export type ProjectKind = "active" | "area";
 export type Bucket = "today" | "tomorrow" | "week";
 export type TaskStatus = "todo" | "in_progress" | "blocked" | "done";
+/** "open" = not yet promoted to a task (not a task state). */
 export type IdeaStatus = "open" | "promoted";
 
 export interface Subtask {
@@ -38,6 +39,7 @@ export interface Task {
   completedAt?: number | null;
   /** Unified due timestamp (ms). dueHasTime distinguishes date-only. */
   due?: number | null;
+  /** When false or absent, due is a date-only value (time of day ignored). */
   dueHasTime?: boolean;
   /** Rolled over from a previous day while still not done. */
   carried?: boolean;
@@ -63,6 +65,7 @@ export interface Idea {
   createdAt: number;
   updatedAt: number;
   due?: number | null;
+  /** When false or absent, due is a date-only value (time of day ignored). */
   dueHasTime?: boolean;
   deletedAt?: number | null;
 }
@@ -78,6 +81,7 @@ export interface BacklogItem {
   createdAt: number;
   updatedAt: number;
   due?: number | null;
+  /** When false or absent, due is a date-only value (time of day ignored). */
   dueHasTime?: boolean;
   promotedProjectId?: number | null;
   deletedAt?: number | null;
