@@ -1,15 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Clock, Plus } from "lucide-react";
+import { Maximize2, Minimize2, Plus } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db/schema";
 import { addTask } from "@/lib/db/queries";
 import { extractLinks } from "@/lib/links";
 import { BUCKETS, type Bucket } from "@/lib/types";
 import { Sheet, SheetContent } from "./ui/sheet";
-import { Input } from "./ui/input";
 import { Button } from "./ui/button";
+import { DuePicker } from "./due-picker";
 import { cn } from "@/lib/utils";
 
 export function QuickAdd({
@@ -23,7 +23,9 @@ export function QuickAdd({
   const [text, setText] = useState("");
   const [bucket, setBucket] = useState<Bucket>(defaultBucket);
   const [projectId, setProjectId] = useState<number | null>(defaultProjectId);
-  const [time, setTime] = useState("");
+  const [due, setDue] = useState<number | null>(null);
+  const [dueHasTime, setDueHasTime] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const projects = useLiveQuery(
     () => db.projects.orderBy("order").toArray(),
     [],
@@ -34,14 +36,17 @@ export function QuickAdd({
     setBucket(defaultBucket);
     setProjectId(defaultProjectId);
     setText("");
-    setTime("");
+    setDue(null);
+    setDueHasTime(false);
+    setExpanded(false);
     setOpen(true);
   }
 
   async function submit() {
     const { title, links } = extractLinks(text);
-    if (!title.trim()) return;
-    await addTask({ title, links, projectId, bucket, time: time || null });
+    const finalTitle = title.trim() || text.trim();
+    if (!finalTitle) return;
+    await addTask({ title: finalTitle, links, projectId, bucket, due, dueHasTime });
     setOpen(false);
   }
 
@@ -57,15 +62,31 @@ export function QuickAdd({
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent title="Add a task">
-          <Input
-            autoFocus
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="What needs doing? Paste links too…"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void submit();
-            }}
-          />
+          <div className="relative">
+            <textarea
+              autoFocus
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="What needs doing? Paste links too…"
+              rows={expanded ? 6 : 2}
+              onKeyDown={(e) => {
+                // Enter submits; Shift+Enter inserts a newline (desktop).
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void submit();
+                }
+              }}
+              className="w-full resize-none rounded-xl border border-border bg-transparent px-3 py-2 pr-9 text-[15px] outline-none focus:border-primary"
+            />
+            <button
+              type="button"
+              aria-label={expanded ? "Collapse" : "Expand"}
+              onClick={() => setExpanded((v) => !v)}
+              className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-md text-muted transition hover:text-foreground"
+            >
+              {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
+          </div>
 
           <div className="mt-3 flex gap-1.5">
             {BUCKETS.map((b) => (
@@ -117,25 +138,15 @@ export function QuickAdd({
             ))}
           </div>
 
-          <div className="mt-3 flex items-center gap-2">
-            <label className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-[12px] text-muted">
-              <Clock size={12} />
-              <input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                aria-label="Time of day"
-                className="bg-transparent text-foreground outline-none"
-              />
-            </label>
-            {time && (
-              <button
-                onClick={() => setTime("")}
-                className="text-[12px] text-muted transition hover:text-foreground"
-              >
-                Clear
-              </button>
-            )}
+          <div className="mt-3">
+            <DuePicker
+              due={due}
+              dueHasTime={dueHasTime}
+              onChange={(n) => {
+                setDue(n.due);
+                setDueHasTime(n.dueHasTime);
+              }}
+            />
           </div>
 
           <Button

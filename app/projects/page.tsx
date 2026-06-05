@@ -27,7 +27,10 @@ function ProjectsView() {
     [],
   );
   const tasks = useLiveQuery(
-    () => db.tasks.filter((t) => !t.archived && t.status === "open").toArray(),
+    () =>
+      db.tasks
+        .filter((t) => !t.archived && t.deletedAt == null && t.status !== "done")
+        .toArray(),
     [],
     [],
   );

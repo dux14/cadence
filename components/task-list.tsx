@@ -34,8 +34,8 @@ export function TaskList({
             task={t}
             project={t.projectId ? projects.get(t.projectId) : undefined}
             handle={
-              // Timed tasks sort by their time; only untimed rows drag.
-              t.time ? undefined : (
+              // Tasks with a timed due sort by time; only the rest drag.
+              t.dueHasTime ? undefined : (
                 <button
                   aria-label="Drag to reorder"
                   className="grid h-9 w-7 shrink-0 cursor-grab touch-none place-items-center text-muted active:cursor-grabbing"

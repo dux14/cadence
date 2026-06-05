@@ -23,15 +23,17 @@ export default function TodayPage() {
       db.tasks
         .where("bucket")
         .equals(bucket)
-        .filter((t) => !t.archived)
+        .filter((t) => !t.archived && t.deletedAt == null)
         .toArray(),
     [bucket],
     [],
   );
   const counts = useLiveQuery(async () => {
-    const all = await db.tasks.filter((t) => !t.archived).toArray();
+    const all = await db.tasks
+      .filter((t) => !t.archived && t.deletedAt == null)
+      .toArray();
     return {
-      today: all.filter((t) => t.bucket === "today" && t.status === "open")
+      today: all.filter((t) => t.bucket === "today" && t.status !== "done")
         .length,
       tomorrow: all.filter((t) => t.bucket === "tomorrow").length,
       week: all.filter((t) => t.bucket === "week").length,
@@ -41,15 +43,15 @@ export default function TodayPage() {
   const projectMap = new Map<number, Project>(
     projects.map((p) => [p.id!, p] as const),
   );
-  // Open before done; timed tasks first (ascending), untimed keep manual order.
-  const timeCmp = (a?: string | null, b?: string | null) =>
-    a && b ? a.localeCompare(b) : Number(!!b) - Number(!!a);
+  // Non-done before done; tasks with a due sort earliest-first, the rest keep manual order.
+  const dueCmp = (a?: number | null, b?: number | null) =>
+    a != null && b != null ? a - b : Number(b != null) - Number(a != null);
   const sorted = tasks
     .slice()
     .sort(
       (a, b) =>
         Number(a.status === "done") - Number(b.status === "done") ||
-        timeCmp(a.time, b.time) ||
+        dueCmp(a.due, b.due) ||
         a.order - b.order,
     );
 

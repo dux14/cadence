@@ -2,18 +2,36 @@
 
 import { useState, type ReactNode } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Check, Clock, RotateCcw, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { db } from "@/lib/db/schema";
-import type { Project, Task } from "@/lib/types";
+import type { Project, Subtask, Task, TaskStatus } from "@/lib/types";
 import { BUCKETS } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { formatTime } from "@/lib/date";
+import { firstLines } from "@/lib/multiline";
 import { ProjectTag } from "./project-tag";
 import { LinkChip } from "./link-chip";
+import { DueChip } from "./due-chip";
+import { ChecklistChip } from "./checklist-chip";
+import { StatusToggle } from "./status-toggle";
+import { ChecklistEditor } from "./checklist-editor";
+import { DuePicker } from "./due-picker";
 import { Sheet, SheetContent } from "./ui/sheet";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { deleteTask, moveTask, toggleTask, updateTask } from "@/lib/db/queries";
+import {
+  cycleTaskStatus,
+  deleteTask,
+  moveTask,
+  setTaskStatus,
+  updateTask,
+} from "@/lib/db/queries";
+import { extractLinks } from "@/lib/links";
+
+const STATUSES: { id: TaskStatus; label: string }[] = [
+  { id: "todo", label: "To do" },
+  { id: "in_progress", label: "In progress" },
+  { id: "blocked", label: "Blocked" },
+  { id: "done", label: "Done" },
+];
 
 export function TaskRow({
   task,
@@ -26,16 +44,13 @@ export function TaskRow({
 }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(task.title);
-  const [projectId, setProjectId] = useState<number | null>(
-    task.projectId ?? null,
-  );
-  const [time, setTime] = useState(task.time ?? "");
+  const [projectId, setProjectId] = useState<number | null>(task.projectId ?? null);
+  const [subtasks, setSubtasks] = useState<Subtask[]>(task.subtasks ?? []);
+  const [due, setDue] = useState<number | null>(task.due ?? null);
+  const [dueHasTime, setDueHasTime] = useState<boolean>(task.dueHasTime ?? false);
   const done = task.status === "done";
-  // Creation feedback: rows mounting right after their createdAt pulse mint.
-  // Lazy state: evaluated once per mount, keeping render pure.
   const [isNew] = useState(() => Date.now() - task.createdAt < 1500);
 
-  // Only query the project list while the sheet is open; rows stay cheap.
   const projects = useLiveQuery(
     () => (open ? db.projects.orderBy("order").toArray() : []),
     [open],
@@ -44,16 +59,33 @@ export function TaskRow({
   function openSheet() {
     setTitle(task.title);
     setProjectId(task.projectId ?? null);
-    setTime(task.time ?? "");
+    setSubtasks(task.subtasks ?? []);
+    setDue(task.due ?? null);
+    setDueHasTime(task.dueHasTime ?? false);
     setOpen(true);
   }
 
   function save() {
-    const t = title.trim();
+    const { title: cleanTitle, links } = extractLinks(title);
+    const t = cleanTitle.trim() || title.trim();
     if (!t) return;
-    void updateTask(task.id!, { title: t, projectId, time: time || null });
+    void updateTask(task.id!, {
+      title: t,
+      projectId,
+      links: links.length ? [...task.links, ...links] : task.links,
+      subtasks,
+      due,
+      dueHasTime,
+    });
     setOpen(false);
   }
+
+  const hasPreview =
+    task.due != null ||
+    (task.subtasks?.length ?? 0) > 0 ||
+    task.links.length > 0 ||
+    !!project ||
+    (task.carried && !done);
 
   return (
     <div
@@ -62,45 +94,30 @@ export function TaskRow({
         isNew && "row-arrive",
       )}
     >
-      <button
-        aria-label={done ? "Mark as not done" : "Mark as done"}
-        onClick={() => toggleTask(task)}
-        className={cn(
-          "grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 transition",
-          done
-            ? "border-accent bg-accent text-accent-ink"
-            : "border-primary text-transparent",
-        )}
-      >
-        <Check size={12} strokeWidth={3} />
-      </button>
+      <StatusToggle status={task.status} onCycle={() => void cycleTaskStatus(task)} />
 
       <button onClick={openSheet} className="min-w-0 flex-1 text-left">
         <span
           className={cn(
-            "block truncate text-[15px]",
+            "block whitespace-pre-line text-[15px] leading-snug line-clamp-2",
             done ? "text-muted line-through" : "text-foreground",
           )}
         >
-          {task.title}
+          {firstLines(task.title, 2)}
         </span>
-        {(project ||
-          task.time ||
-          task.links.length > 0 ||
-          (task.carried && !done)) && (
+        {hasPreview && (
           <span className="mt-1 flex flex-wrap items-center gap-1.5">
-            {task.time && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-medium text-foreground">
-                <Clock size={10} /> {formatTime(task.time)}
-              </span>
-            )}
-            {project && <ProjectTag name={project.name} color={project.color} />}
+            {/* Fixed order: [due][checklist][links][photos(SP2)] */}
+            <DueChip due={task.due} dueHasTime={task.dueHasTime} />
+            <ChecklistChip subtasks={task.subtasks ?? []} />
             {task.links.map((l) => (
               <LinkChip key={l} url={l} />
             ))}
+            {/* TODO(SP2): photo chip goes here, after links. */}
+            {project && <ProjectTag name={project.name} color={project.color} />}
             {task.carried && !done && (
               <span className="inline-flex items-center gap-1 rounded-md bg-border/60 px-1.5 py-0.5 text-[11px] text-muted">
-                <RotateCcw size={10} /> carried
+                carried
               </span>
             )}
           </span>
@@ -111,16 +128,58 @@ export function TaskRow({
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent title="Edit task">
-          <Input
+          <p className="mb-1.5 text-[12px] font-medium text-muted">Status</p>
+          <div className="mb-4 grid grid-cols-4 gap-1.5">
+            {STATUSES.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => void setTaskStatus(task.id!, s.id)}
+                className={cn(
+                  "rounded-full px-2 py-1.5 text-[11px] font-medium transition",
+                  task.status === s.id
+                    ? "bg-primary text-primary-ink"
+                    : "border border-border text-muted",
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
+          <textarea
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") save();
-            }}
+            rows={2}
+            className="w-full resize-none rounded-xl border border-border bg-transparent px-3 py-2 text-[15px] outline-none focus:border-primary"
           />
-          <p className="mt-4 mb-1.5 text-[12px] font-medium text-muted">
-            Project
-          </p>
+
+          <div className="mt-4">
+            <DuePicker
+              due={due}
+              dueHasTime={dueHasTime}
+              onChange={(n) => {
+                setDue(n.due);
+                setDueHasTime(n.dueHasTime);
+              }}
+            />
+          </div>
+
+          <div className="mt-4">
+            <ChecklistEditor subtasks={subtasks} onChange={setSubtasks} />
+          </div>
+
+          {task.links.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-1.5 text-[12px] font-medium text-muted">Links</p>
+              <div className="flex flex-wrap gap-1.5">
+                {task.links.map((l) => (
+                  <LinkChip key={l} url={l} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="mt-4 mb-1.5 text-[12px] font-medium text-muted">Project</p>
           <div className="flex flex-wrap gap-1.5">
             <button
               onClick={() => setProjectId(null)}
@@ -152,29 +211,8 @@ export function TaskRow({
               </button>
             ))}
           </div>
-          <div className="mt-4 flex items-center gap-2">
-            <label className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-[12px] text-muted">
-              <Clock size={12} />
-              <input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                aria-label="Time of day"
-                className="bg-transparent text-foreground outline-none"
-              />
-            </label>
-            {time && (
-              <button
-                onClick={() => setTime("")}
-                className="text-[12px] text-muted transition hover:text-foreground"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-          <p className="mt-4 mb-1.5 text-[12px] font-medium text-muted">
-            Move to
-          </p>
+
+          <p className="mt-4 mb-1.5 text-[12px] font-medium text-muted">Move to</p>
           <div className="grid grid-cols-3 gap-2">
             {BUCKETS.map((b) => (
               <Button
@@ -190,6 +228,7 @@ export function TaskRow({
               </Button>
             ))}
           </div>
+
           <div className="mt-5 flex items-center justify-between">
             <Button
               variant="danger"
