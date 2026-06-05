@@ -65,7 +65,9 @@ export default function HistoricoPage() {
     if (!t) return;
     void updateBacklog(editing.id!, {
       title: t,
-      links: links.length ? [...(editing.links ?? []), ...links] : editing.links,
+      links: links.length
+        ? [...new Set([...(editing.links ?? []), ...links])]
+        : editing.links,
       subtasks: eSubtasks,
       due: eDue,
       dueHasTime: eDueHasTime,

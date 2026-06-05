@@ -70,7 +70,10 @@ export function QuickAdd({
               placeholder="What needs doing? Paste links too…"
               rows={expanded ? 6 : 2}
               onKeyDown={(e) => {
-                // Enter submits; Shift+Enter inserts a newline (desktop).
+                // Expanded = multiline mode: Enter inserts a newline (mobile has
+                // no Shift); submit via the button below.
+                // Collapsed: Enter submits, Shift+Enter inserts a newline.
+                if (expanded) return;
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   void submit();
@@ -80,7 +83,8 @@ export function QuickAdd({
             />
             <button
               type="button"
-              aria-label={expanded ? "Collapse" : "Expand"}
+              aria-label={expanded ? "Salir de modo multilínea" : "Modo multilínea"}
+              title={expanded ? "Salir de modo multilínea" : "Modo multilínea"}
               onClick={() => setExpanded((v) => !v)}
               className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-md text-muted transition hover:text-foreground"
             >

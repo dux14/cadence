@@ -72,7 +72,7 @@ export function TaskRow({
     void updateTask(task.id!, {
       title: t,
       projectId,
-      links: links.length ? [...task.links, ...links] : task.links,
+      links: links.length ? [...new Set([...task.links, ...links])] : task.links,
       subtasks,
       due,
       dueHasTime,

@@ -36,17 +36,20 @@ export function IdeaRow({ idea, handle }: { idea: Idea; handle?: ReactNode }) {
     setOpen(true);
   }
 
+  // Shared extraction so save() and promote write identical, stripped values.
+  function buildPayload() {
+    const { title: cleanText, links: extracted } = extractLinks(text);
+    const finalText = cleanText.trim() || text.trim();
+    const mergedLinks = extracted.length
+      ? [...new Set([...(idea.links ?? []), ...extracted])]
+      : idea.links ?? [];
+    return { text: finalText, links: mergedLinks, subtasks, due, dueHasTime };
+  }
+
   function save() {
-    const { title: cleanText, links } = extractLinks(text);
-    const t = cleanText.trim() || text.trim();
-    if (!t) return;
-    void updateIdea(idea.id!, {
-      text: t,
-      links: links.length ? [...(idea.links ?? []), ...links] : idea.links,
-      subtasks,
-      due,
-      dueHasTime,
-    });
+    const payload = buildPayload();
+    if (!payload.text) return;
+    void updateIdea(idea.id!, payload);
     setOpen(false);
   }
 
@@ -138,9 +141,11 @@ export function IdeaRow({ idea, handle }: { idea: Idea; handle?: ReactNode }) {
                 variant="soft"
                 size="sm"
                 onClick={() => {
+                  const payload = buildPayload();
+                  if (!payload.text) return;
                   // Persist edits first so promote transfers them.
-                  save();
-                  void promoteIdeaToTask({ ...idea, text, links: idea.links, subtasks, due, dueHasTime }, b.id);
+                  void updateIdea(idea.id!, payload);
+                  void promoteIdeaToTask({ ...idea, ...payload }, b.id);
                   setOpen(false);
                 }}
               >
