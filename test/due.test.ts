@@ -30,11 +30,18 @@ describe("formatDue", () => {
     expect(out.toLowerCase()).toContain("hoy");
   });
 
-  it("shows a short month+day for a date-only due in another month", () => {
+  it("shows a short month+day label for a non-adjacent date", () => {
     const now = at(2026, 5, 5); // Jun 5
     const due = at(2026, 5, 12); // Jun 12
     const out = formatDue(due, false, new Date(now));
-    expect(out).toMatch(/12/);
+    expect(out).toBe("jun 12");
+  });
+
+  it("appends the short time on a non-adjacent date with hour", () => {
+    const now = at(2026, 5, 5);
+    const due = at(2026, 5, 12, 15, 0);
+    const out = formatDue(due, true, new Date(now));
+    expect(out).toBe("jun 12 3pm");
   });
 
   it("returns empty string for null", () => {
