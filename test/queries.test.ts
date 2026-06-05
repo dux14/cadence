@@ -12,6 +12,10 @@ import {
   updateIdea,
   deleteIdea,
   listIdeas,
+  deleteProject,
+  addProject,
+  toggleTask,
+  listProjects,
 } from "@/lib/db/queries";
 
 beforeEach(async () => {
@@ -105,5 +109,60 @@ describe("addTask defaults", () => {
     expect(t.subtasks).toEqual([]);
     expect(t.status).toBe("todo");
     expect(t.deletedAt).toBeNull();
+  });
+});
+
+describe("deleteProject cascade", () => {
+  it("tombstones the project and its ideas, detaches tasks", async () => {
+    const pid = await addProject("Doomed", "active");
+    const ideaId = await addIdea(pid, "project idea");
+    const taskId = await addTask({ title: "project task", bucket: "today", projectId: pid });
+    const taskBefore = (await db.tasks.get(taskId))!;
+    await new Promise((r) => setTimeout(r, 2));
+
+    await deleteProject(pid);
+
+    const project = (await db.projects.get(pid))!;
+    expect(project.deletedAt).not.toBeNull();
+    expect((await listProjects()).find((p) => p.id === pid)).toBeUndefined();
+
+    const idea = (await db.ideas.get(ideaId))!;
+    expect(idea.deletedAt).not.toBeNull();
+
+    const task = (await db.tasks.get(taskId))!;
+    expect(task.deletedAt ?? null).toBeNull(); // detached, NOT tombstoned
+    expect(task.projectId).toBeNull();
+    expect(task.updatedAt).toBeGreaterThan(taskBefore.updatedAt); // LWW stamp
+  });
+});
+
+describe("promoteIdeaToTask side effects", () => {
+  it("bumps the idea's updatedAt and creates exactly one task", async () => {
+    const ideaId = await addIdea(3, "to promote");
+    const before = (await db.ideas.get(ideaId))!;
+    await new Promise((r) => setTimeout(r, 2));
+
+    await promoteIdeaToTask(before, "week");
+
+    const after = (await db.ideas.get(ideaId))!;
+    expect(after.status).toBe("promoted");
+    expect(after.updatedAt).toBeGreaterThan(before.updatedAt); // LWW stamp
+    const tasks = (await db.tasks.toArray()).filter((t) => t.title === "to promote");
+    expect(tasks).toHaveLength(1);
+  });
+});
+
+describe("toggleTask back-compat", () => {
+  it("toggles done <-> todo", async () => {
+    const id = await addTask({ title: "t", bucket: "today" });
+    let t = (await db.tasks.get(id))!;
+    await toggleTask(t);
+    t = (await db.tasks.get(id))!;
+    expect(t.status).toBe("done");
+    expect(t.completedAt).not.toBeNull();
+    await toggleTask(t);
+    t = (await db.tasks.get(id))!;
+    expect(t.status).toBe("todo");
+    expect(t.completedAt).toBeNull();
   });
 });
