@@ -51,7 +51,9 @@ export class CadenceDB extends Dexie {
           .toCollection()
           .modify((t) => {
             const next = migrateTaskV1({ ...t });
-            for (const k of Object.keys(t)) delete (t as Record<string, unknown>)[k];
+            // `time` is the only v1 field removed in v2; delete it explicitly instead of
+            // nuking every key, so the primary key never round-trips through delete.
+            delete (t as Record<string, unknown>).time;
             Object.assign(t, next);
           });
         await tx

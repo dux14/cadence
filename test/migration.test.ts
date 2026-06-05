@@ -327,5 +327,12 @@ describe("Dexie v1 -> v2 in-place upgrade", () => {
     expect(idea[0].links).toEqual([]);
     expect(idea[0].subtasks).toEqual([]);
     expect(idea[0].guid).toBeTruthy();
+
+    // 8. Primary keys survive the upgrade; relations stay intact.
+    const byId = await db.tasks.get(1);
+    expect(byId?.title).toBe("open one");
+    expect(byId?.projectId).toBe(1);
+    const project = await db.projects.get(1);
+    expect(project?.name).toBe("HKN");
   });
 });
