@@ -35,7 +35,7 @@ function ProjectsView() {
     [],
   );
   const ideas = useLiveQuery(
-    () => db.ideas.filter((i) => i.status === "open").toArray(),
+    () => db.ideas.filter((i) => i.status === "open" && i.deletedAt == null).toArray(),
     [],
     [],
   );

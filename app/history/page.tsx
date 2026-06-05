@@ -11,7 +11,7 @@ import type { Project, Task } from "@/lib/types";
 
 export default function HistoryPage() {
   const tasks = useLiveQuery(
-    () => db.tasks.filter((t) => !!t.archived).toArray(),
+    () => db.tasks.filter((t) => !!t.archived && t.deletedAt == null).toArray(),
     [],
     [],
   );

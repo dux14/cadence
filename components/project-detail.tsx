@@ -34,7 +34,7 @@ export function ProjectDetail({
       db.tasks
         .where("projectId")
         .equals(projectId)
-        .filter((t) => !t.archived)
+        .filter((t) => !t.archived && t.deletedAt == null)
         .toArray(),
     [projectId],
     [],
@@ -44,7 +44,7 @@ export function ProjectDetail({
       db.ideas
         .where("projectId")
         .equals(projectId)
-        .filter((i) => i.status === "open")
+        .filter((i) => i.status === "open" && i.deletedAt == null)
         .toArray(),
     [projectId],
     [],
