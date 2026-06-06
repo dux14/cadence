@@ -33,6 +33,7 @@ export function BottomNav() {
               key={t.href}
               href={t.href}
               aria-label={t.label}
+              aria-current={active ? "page" : undefined}
               className={cn(
                 "flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition md:flex-none md:flex-row md:justify-center md:gap-3 md:rounded-xl md:px-0 md:py-2.5 md:text-[14px] lg:justify-start lg:px-3",
                 active ? "text-foreground md:bg-border/50" : "text-muted md:hover:bg-border/30",
