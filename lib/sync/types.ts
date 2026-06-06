@@ -7,6 +7,11 @@ export interface RemoteRowBase {
   user_id: string;
   updated_at: number;
   deleted_at: number | null;
+  /**
+   * Stamped by the server trigger on every INSERT or UPDATE.
+   * Present on pulled rows; NEVER sent by mappers on push (client doesn't set it).
+   */
+  server_updated_at?: number;
 }
 // Engine treats remote rows generically; mappers know the concrete columns.
 export type RemoteRow = RemoteRowBase & Record<string, unknown>;
@@ -24,7 +29,7 @@ export interface SyncClient {
   getUserId(): Promise<string | null>;
   /** LWW upsert: server keeps the row only if incoming updated_at >= current. */
   upsert(table: Table, rows: RemoteRow[]): Promise<UpsertResult>;
-  /** Rows for this user with updated_at > cursor, ascending. */
+  /** Rows for this user with server_updated_at > cursor, ascending by server_updated_at. */
   pullSince(table: Table, cursor: number): Promise<RemoteRow[]>;
   /** Count of non-deleted rows for this user (migration verification). */
   countLive(table: Table): Promise<number>;

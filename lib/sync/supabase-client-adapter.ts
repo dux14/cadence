@@ -28,16 +28,18 @@ export function createSupabaseSyncClient(sb: SupabaseClient): SyncClient {
 
     async pullSince(table: Table, cursor: number) {
       // Paginate to avoid silent truncation at PostgREST's 1 000-row default.
-      // Sort by (updated_at ASC, guid ASC) so tie-breaks are stable across
-      // page boundaries and no rows are duplicated or skipped.
+      // Sort by (server_updated_at ASC, guid ASC): server_updated_at is the
+      // server-stamped receive-time, so the cursor correctly tracks when the
+      // server received each row — not when the client last edited it.
+      // Tie-breaks on guid keep page boundaries stable (no duplicate/skip).
       const rows: RemoteRow[] = [];
       let from = 0;
       while (true) {
         const { data, error } = await sb
           .from(table)
           .select("*")
-          .gt("updated_at", cursor)
-          .order("updated_at", { ascending: true })
+          .gt("server_updated_at", cursor)
+          .order("server_updated_at", { ascending: true })
           .order("guid", { ascending: true })
           .range(from, from + PULL_PAGE_SIZE - 1);
         if (error) throw error;

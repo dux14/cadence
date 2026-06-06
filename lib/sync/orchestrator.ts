@@ -4,6 +4,7 @@ import { syncOnce, migrateInitial } from "@/lib/sync/engine";
 import {
   uploadPendingPhotos,
   pushPhotoMetadata,
+  pullPhotoMetadata,
   downloadPhotoBlob,
 } from "@/lib/sync/photos";
 import { getMeta, setMeta } from "@/lib/db/schema";
@@ -57,6 +58,7 @@ async function runSync(): Promise<void> {
   try {
     await withPushLock(async () => {
       await syncOnce(client, userId);
+      await pullPhotoMetadata(client);
       await pushPhotoMetadata(client, userId);
       await uploadPendingPhotos(client, userId);
     });
@@ -96,6 +98,7 @@ export async function ensureMigrated(): Promise<void> {
   await withPushLock(async () => {
     if (await getMeta<boolean>("sync.migrated", false)) return;
     const result = await migrateInitial(client, userId);
+    await pullPhotoMetadata(client);
     await pushPhotoMetadata(client, userId);
     await uploadPendingPhotos(client, userId);
     if (result.ok) {

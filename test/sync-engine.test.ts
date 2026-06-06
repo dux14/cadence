@@ -32,9 +32,14 @@ function makeMockClient(userId: string | null): {
       return { accepted };
     },
     async pullSince(table, cursor) {
+      // Mock mirrors the real adapter: filter and sort by server_updated_at.
+      // For rows without server_updated_at (legacy shape), fall back to updated_at
+      // so existing tests that don't set it continue to work.
+      const serverTs = (r: RemoteRow) =>
+        r.server_updated_at ?? (r.updated_at as number);
       return [...tableMap(table).values()]
-        .filter((r) => (r.updated_at as number) > cursor)
-        .sort((a, b) => (a.updated_at as number) - (b.updated_at as number));
+        .filter((r) => serverTs(r) > cursor)
+        .sort((a, b) => serverTs(a) - serverTs(b));
     },
     async countLive(table) {
       return [...tableMap(table).values()].filter((r) => r.deleted_at == null)
@@ -120,7 +125,7 @@ describe("pullTable LWW", () => {
     expect(row!.title).toBe("local-newer");
   });
 
-  it("advances the pull cursor to the max updated_at seen", async () => {
+  it("advances the pull cursor to the max server_updated_at seen", async () => {
     const { client } = makeMockClient("u1");
     await client.upsert("tasks", [{
       guid: "g3", user_id: "u1", title: "x", links: [], project_guid: null,
@@ -128,9 +133,11 @@ describe("pullTable LWW", () => {
       completed_at: null, due: null, due_has_time: false, subtasks: [],
       carried: false, day_key: null, archived: false, archived_at: null,
       updated_at: 777, deleted_at: null,
+      server_updated_at: 888,
     }]);
     await pullTable("tasks", client);
-    expect(await getPullCursor("tasks")).toBe(777);
+    // Cursor must advance by server_updated_at, not client updated_at.
+    expect(await getPullCursor("tasks")).toBe(888);
   });
 
   it("applies a remote tombstone by deleting the local row", async () => {
@@ -315,7 +322,8 @@ describe("re-pull idempotence", () => {
   it("produces no duplicates and same final state when pull cursor is rewound", async () => {
     const { client } = makeMockClient("u1");
 
-    // Populate server with two tasks.
+    // Populate server with two tasks (server_updated_at > client updated_at to
+    // distinguish the two and verify cursor advances by server_updated_at).
     await client.upsert("tasks", [
       {
         guid: "r1", user_id: "u1", title: "task-one", links: [],
@@ -323,6 +331,7 @@ describe("re-pull idempotence", () => {
         created_at: 1, completed_at: null, due: null, due_has_time: false,
         subtasks: [], carried: false, day_key: null, archived: false,
         archived_at: null, updated_at: 100, deleted_at: null,
+        server_updated_at: 1100,
       },
       {
         guid: "r2", user_id: "u1", title: "task-two", links: [],
@@ -330,6 +339,7 @@ describe("re-pull idempotence", () => {
         created_at: 2, completed_at: null, due: null, due_has_time: false,
         subtasks: [], carried: false, day_key: null, archived: false,
         archived_at: null, updated_at: 200, deleted_at: null,
+        server_updated_at: 1200,
       },
     ]);
 
@@ -864,5 +874,99 @@ describe("resetSyncCursors", () => {
 
     expect(await getLastPushedAt("projects")).toBe(0);
     expect(await getPullCursor("tasks")).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG 1 regression: server_updated_at cursor — late-uploading device visible
+// ---------------------------------------------------------------------------
+
+describe("pullTable — server_updated_at cursor regression (Bug 1)", () => {
+  it("applies a row with OLD client updated_at but NEW server_updated_at and advances cursor by server_updated_at", async () => {
+    const { client } = makeMockClient("u1");
+
+    // Simulate: Device A pulled up to server_updated_at=1000 (cursor is at 1000).
+    await setPullCursor("tasks", 1000);
+
+    // Device B uploaded a row with client updated_at=50 (very old edit) but
+    // the server stamped server_updated_at=1100 (received after A's cursor advanced).
+    // With the old cursor (by updated_at=50), A would never see this row.
+    // With server_updated_at cursor, A fetches it because 1100 > 1000.
+    await client.upsert("tasks", [{
+      guid: "late-b", user_id: "u1", title: "old-edit-late-upload", links: [],
+      project_guid: null, bucket: "today", status: "todo", order: 0,
+      created_at: 1, completed_at: null, due: null, due_has_time: false,
+      subtasks: [], carried: false, day_key: null, archived: false,
+      archived_at: null,
+      updated_at: 50,         // old client stamp — would be invisible under old cursor
+      deleted_at: null,
+      server_updated_at: 1100, // server received it after A's cursor (1000)
+    }]);
+
+    await pullTable("tasks", client);
+
+    // Row must be present locally (was not skipped).
+    const row = await db.tasks.where("guid").equals("late-b").first();
+    expect(row).toBeDefined();
+    expect(row!.title).toBe("old-edit-late-upload");
+
+    // Cursor must have advanced to server_updated_at=1100, NOT to updated_at=50.
+    expect(await getPullCursor("tasks")).toBe(1100);
+  });
+
+  it("LWW comparison still uses client updated_at — a newer local row wins", async () => {
+    const { client } = makeMockClient("u1");
+
+    // Local has updatedAt=500; remote has updated_at=100 (older) with server_updated_at=2000.
+    await db.tasks.add({
+      guid: "lww-check", title: "local-newer", links: [], projectId: null,
+      bucket: "today", status: "todo", order: 0, createdAt: 1,
+      completedAt: null, due: null, dueHasTime: false, subtasks: [],
+      carried: false, dayKey: null, archived: false, archivedAt: null,
+      updatedAt: 500, deletedAt: null,
+    });
+
+    await client.upsert("tasks", [{
+      guid: "lww-check", user_id: "u1", title: "remote-old-edit", links: [],
+      project_guid: null, bucket: "today", status: "todo", order: 0,
+      created_at: 1, completed_at: null, due: null, due_has_time: false,
+      subtasks: [], carried: false, day_key: null, archived: false,
+      archived_at: null,
+      updated_at: 100,          // older than local — LWW skip
+      deleted_at: null,
+      server_updated_at: 2000,  // new server stamp doesn't affect LWW decision
+    }]);
+
+    await pullTable("tasks", client);
+
+    // Local newer row must NOT be overwritten.
+    const row = await db.tasks.where("guid").equals("lww-check").first();
+    expect(row!.title).toBe("local-newer");
+    expect(row!.updatedAt).toBe(500);
+
+    // But cursor advances by server_updated_at even when LWW skips the content.
+    expect(await getPullCursor("tasks")).toBe(2000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2 cursor key — old key does not bleed into new reads
+// ---------------------------------------------------------------------------
+
+describe("pull cursor v2 key isolation", () => {
+  it("getPullCursor reads from v2 key — the old key (sync.pullCursor.<t>) is ignored", async () => {
+    // Directly write to the OLD key to simulate a device that had the old cursor.
+    const { getMeta, setMeta } = await import("@/lib/db/schema");
+    await setMeta("sync.pullCursor.tasks", 9999); // old key with stale cursor
+
+    // New key should still be 0 (default) — old key is ignored.
+    const cursor = await getPullCursor("tasks");
+    expect(cursor).toBe(0);
+
+    // Writing the new cursor must not affect the old key.
+    await setPullCursor("tasks", 500);
+    const oldKeyValue = await getMeta<number>("sync.pullCursor.tasks", -1);
+    expect(oldKeyValue).toBe(9999); // unchanged
+    expect(await getPullCursor("tasks")).toBe(500);
   });
 });

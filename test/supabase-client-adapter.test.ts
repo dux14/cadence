@@ -14,13 +14,15 @@ import type { RemoteRow } from "@/lib/sync/types";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a page of fake remote rows with incrementing updated_at values. */
-function makeRows(count: number, startUpdatedAt = 1): RemoteRow[] {
+/** Build a page of fake remote rows with incrementing server_updated_at values.
+ *  updated_at intentionally differs (lower) to confirm the filter/sort uses server_updated_at. */
+function makeRows(count: number, startServerUpdatedAt = 1): RemoteRow[] {
   return Array.from({ length: count }, (_, i) => ({
-    guid: `guid-${startUpdatedAt + i}`,
+    guid: `guid-${startServerUpdatedAt + i}`,
     user_id: "u1",
-    updated_at: startUpdatedAt + i,
+    updated_at: 1, // intentionally fixed/low — pagination keys off server_updated_at
     deleted_at: null,
+    server_updated_at: startServerUpdatedAt + i,
   }));
 }
 
@@ -28,20 +30,28 @@ function makeRows(count: number, startUpdatedAt = 1): RemoteRow[] {
  * Creates a minimal chainable stub for the supabase-js query builder that
  * returns `pages` in sequence (one page per `.range()` call).  Every method
  * except `.range()` returns `this` so the chain compiles.
+ * Also records the columns passed to `.gt()` and `.order()` for assertions.
  */
 function makeChainableStub(pages: RemoteRow[][]) {
   let callIndex = 0;
+  const gtColumns: string[] = [];
+  const orderColumns: string[] = [];
   const builder = {
     select: () => builder,
-    gt: () => builder,
-    order: () => builder,
+    gt: (col: string) => { gtColumns.push(col); return builder; },
+    order: (col: string) => { orderColumns.push(col); return builder; },
     range: (_from: number, _to: number) => {
       const page = pages[callIndex] ?? [];
       callIndex++;
       return Promise.resolve({ data: page, error: null });
     },
   };
-  return { builder, getCallCount: () => callIndex };
+  return {
+    builder,
+    getCallCount: () => callIndex,
+    getGtColumns: () => gtColumns,
+    getOrderColumns: () => orderColumns,
+  };
 }
 
 /**
@@ -132,12 +142,16 @@ function makeStorageStub(opts: {
 describe("pullSince — pagination", () => {
   it("returns all rows when the first page is smaller than PAGE_SIZE (single page)", async () => {
     const rows = makeRows(3, 10);
-    const { builder } = makeChainableStub([rows]);
+    const { builder, getGtColumns, getOrderColumns } = makeChainableStub([rows]);
     const client = createSupabaseSyncClient(makeStubClient(builder));
 
     const result = await client.pullSince("tasks", 0);
     expect(result).toHaveLength(3);
     expect(result.map((r) => r.guid)).toEqual(rows.map((r) => r.guid));
+
+    // Must filter and sort by server_updated_at (not client updated_at).
+    expect(getGtColumns()).toContain("server_updated_at");
+    expect(getOrderColumns()).toContain("server_updated_at");
   });
 
   it("fetches multiple pages and concatenates them when pages are full", async () => {

@@ -90,7 +90,11 @@ export async function pushTable(
   await setLastPushedAt(table, next);
 }
 
-/** Pull remote changes since cursor; apply LWW; honor tombstones; advance cursor. */
+/** Pull remote changes since cursor; apply LWW; honor tombstones; advance cursor.
+ *  The cursor tracks server_updated_at (server-stamped receive-time) so that a
+ *  device uploading old rows after another device's cursor advanced is still
+ *  visible on the next pull.  LWW comparisons inside applyRemoteRow still use
+ *  client updated_at — that is the source of truth for conflict resolution. */
 export async function pullTable(
   table: Exclude<Table, "photos">,
   client: SyncClient,
@@ -98,12 +102,15 @@ export async function pullTable(
   const cursor = await getPullCursor(table);
   const rows = await client.pullSince(table, cursor);
   if (rows.length === 0) return;
-  let maxUpdated = cursor;
+  let maxServerUpdated = cursor;
   for (const r of rows) {
-    maxUpdated = Math.max(maxUpdated, r.updated_at as number);
+    // Advance cursor by server_updated_at (defensive: skip if absent but still apply the row).
+    if (r.server_updated_at != null) {
+      maxServerUpdated = Math.max(maxServerUpdated, r.server_updated_at);
+    }
     await applyRemoteRow(table, r);
   }
-  await setPullCursor(table, maxUpdated);
+  await setPullCursor(table, maxServerUpdated);
 }
 
 async function applyRemoteRow(

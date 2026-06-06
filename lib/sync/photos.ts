@@ -1,11 +1,74 @@
 import { db } from "@/lib/db/schema";
 import type { SyncClient } from "@/lib/sync/types";
-import { photoToRemote } from "@/lib/sync/mappers";
-import { getLastPushedAt, setLastPushedAt } from "@/lib/sync/dirty";
+import { photoToRemote, photoFromRemote } from "@/lib/sync/mappers";
+import { getLastPushedAt, setLastPushedAt, getPullCursor, setPullCursor } from "@/lib/sync/dirty";
 import { syncClock } from "@/lib/db/clock";
+import type { Photo } from "@/lib/types";
 
 export function storagePathFor(userId: string, guid: string): string {
   return `${userId}/${guid}.webp`;
+}
+
+/**
+ * Pull photo metadata rows from remote and apply LWW locally.
+ *
+ * This is the receive-side counterpart to pushPhotoMetadata.  Without it,
+ * photos taken on device A never appear on device B's local DB.
+ *
+ * Cursor semantics: same as pullTable in engine.ts — tracks server_updated_at
+ * (server-stamped receive-time) so that a late-uploading device is not
+ * invisible to devices whose cursor already advanced.
+ *
+ * LWW rule: mirrors applyRemoteRow in engine.ts.
+ *  - skip if existing.updatedAt > r.updated_at  (local is strictly newer)
+ *  - if r.deleted_at != null → delete local row physically (if it exists)
+ *  - if not exists → add with photoFromRemote (no blob/thumb; blob fetched on demand)
+ *  - if exists → update metadata fields WITHOUT overwriting blob/thumb
+ *    (never evict a cached blob — downloadPhotoBlob already guards the cache)
+ */
+export async function pullPhotoMetadata(client: SyncClient): Promise<void> {
+  const cursor = await getPullCursor("photos");
+  const rows = await client.pullSince("photos", cursor);
+  if (rows.length === 0) return;
+  let maxServerUpdated = cursor;
+  for (const r of rows) {
+    // Advance cursor by server_updated_at (defensive: skip advance if absent, but apply the row).
+    if (r.server_updated_at != null) {
+      maxServerUpdated = Math.max(maxServerUpdated, r.server_updated_at);
+    }
+
+    const existing = await db.photos.where("guid").equals(r.guid as string).first();
+
+    // LWW: skip if local is strictly newer (compare client updated_at, not server stamp).
+    if (existing && existing.updatedAt > (r.updated_at as number)) continue;
+
+    // Tombstone: delete local row physically.
+    if (r.deleted_at != null) {
+      if (existing?.id != null) await db.photos.delete(existing.id);
+      continue;
+    }
+
+    const data = photoFromRemote(r);
+
+    if (!existing) {
+      // New photo from remote: no blob or thumb yet — downloaded on demand.
+      await db.photos.add(data as Photo);
+    } else {
+      // Update metadata fields only; preserve existing blob/thumb so we don't
+      // evict a blob that was already downloaded and cached on this device.
+      await db.photos.update(existing.id!, {
+        parentType: data.parentType,
+        parentGuid: data.parentGuid,
+        width: data.width,
+        height: data.height,
+        updatedAt: data.updatedAt,
+        deletedAt: data.deletedAt,
+        remoteUrl: data.remoteUrl,
+        // blob and thumb intentionally NOT touched
+      });
+    }
+  }
+  await setPullCursor("photos", maxServerUpdated);
 }
 
 /**

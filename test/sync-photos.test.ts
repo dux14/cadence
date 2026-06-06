@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import "fake-indexeddb/auto";
 import { db } from "@/lib/db/schema";
 import type { RemoteRow, SyncClient } from "@/lib/sync/types";
-import { storagePathFor, uploadPendingPhotos, pushPhotoMetadata, downloadPhotoBlob } from "@/lib/sync/photos";
-import { getLastPushedAt } from "@/lib/sync/dirty";
+import { storagePathFor, uploadPendingPhotos, pushPhotoMetadata, pullPhotoMetadata, downloadPhotoBlob } from "@/lib/sync/photos";
+import { getLastPushedAt, getPullCursor } from "@/lib/sync/dirty";
 
 function mockClient(): SyncClient {
   return {
@@ -146,6 +146,164 @@ describe("pushPhotoMetadata", () => {
     await pushPhotoMetadata(client, "u1");
     const secondCallRows = vi.mocked(client.upsert).mock.calls[1][1];
     expect(secondCallRows.map((r) => r.guid)).toContain("g4");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pullPhotoMetadata
+// ---------------------------------------------------------------------------
+
+describe("pullPhotoMetadata", () => {
+  /** Helper: build a remote photo row. */
+  function remotePhotoRow(
+    guid: string,
+    updatedAt: number,
+    serverUpdatedAt: number,
+    overrides: Partial<RemoteRow> = {},
+  ): RemoteRow {
+    return {
+      guid,
+      user_id: "u1",
+      parent_type: "task",
+      parent_guid: "t1",
+      width: 100,
+      height: 100,
+      storage_path: `u1/${guid}.webp`,
+      created_at: 1,
+      updated_at: updatedAt,
+      deleted_at: null,
+      server_updated_at: serverUpdatedAt,
+      ...overrides,
+    };
+  }
+
+  /** Mock client backed by a simple in-memory map. */
+  function pullMockClient(rows: RemoteRow[]): SyncClient {
+    return {
+      getUserId: async () => "u1",
+      upsert: vi.fn(async () => ({ accepted: [] })),
+      pullSince: async (_table, cursor) =>
+        rows.filter((r) => (r.server_updated_at ?? r.updated_at) > cursor),
+      countLive: async () => 0,
+      uploadPhoto: vi.fn(async () => {}),
+      createSignedUrl: async () => "https://signed/x",
+    };
+  }
+
+  it("adds a new remote photo row locally (no blob/thumb)", async () => {
+    const client = pullMockClient([remotePhotoRow("ph-new", 100, 1100)]);
+    await pullPhotoMetadata(client);
+
+    const row = await db.photos.where("guid").equals("ph-new").first();
+    expect(row).toBeDefined();
+    expect(row!.remoteUrl).toBe("u1/ph-new.webp");
+    // No blob or thumb — downloaded on demand.
+    expect(row!.blob).toBeUndefined();
+    expect(row!.thumb).toBeUndefined();
+  });
+
+  it("advances pull cursor by server_updated_at", async () => {
+    const client = pullMockClient([
+      remotePhotoRow("ph-cur1", 10, 1010),
+      remotePhotoRow("ph-cur2", 20, 1020),
+    ]);
+    await pullPhotoMetadata(client);
+    expect(await getPullCursor("photos")).toBe(1020);
+  });
+
+  it("LWW skip: does not overwrite a locally newer photo", async () => {
+    // Local photo with updatedAt=500; remote has updated_at=100 (older).
+    await db.photos.add({
+      guid: "ph-lww",
+      parentType: "task",
+      parentGuid: "t1",
+      blob: new Blob(["local-blob"]),
+      thumb: new Blob(["local-thumb"]),
+      width: 200,
+      height: 200,
+      createdAt: 1,
+      updatedAt: 500,
+      deletedAt: null,
+      remoteUrl: "u1/ph-lww.webp",
+    });
+
+    const client = pullMockClient([
+      remotePhotoRow("ph-lww", 100, 2000), // updated_at=100 < local 500 → skip
+    ]);
+    await pullPhotoMetadata(client);
+
+    const row = await db.photos.where("guid").equals("ph-lww").first();
+    // Local values must be intact.
+    expect(row!.width).toBe(200);
+    expect(row!.updatedAt).toBe(500);
+    // Cursor still advances by server_updated_at.
+    expect(await getPullCursor("photos")).toBe(2000);
+  });
+
+  it("tombstone: deletes local row physically when remote deleted_at is set", async () => {
+    await db.photos.add({
+      guid: "ph-tomb",
+      parentType: "task",
+      parentGuid: "t1",
+      blob: new Blob(["x"]),
+      thumb: new Blob(["y"]),
+      width: 10,
+      height: 10,
+      createdAt: 1,
+      updatedAt: 10,
+      deletedAt: null,
+      remoteUrl: "u1/ph-tomb.webp",
+    });
+
+    const client = pullMockClient([
+      remotePhotoRow("ph-tomb", 900, 1900, { deleted_at: 900 }),
+    ]);
+    await pullPhotoMetadata(client);
+
+    const row = await db.photos.where("guid").equals("ph-tomb").first();
+    expect(row).toBeUndefined();
+  });
+
+  it("update does not overwrite an existing blob/thumb cache", async () => {
+    const cachedBlob = new Blob(["cached-blob"], { type: "image/webp" });
+    const cachedThumb = new Blob(["cached-thumb"], { type: "image/webp" });
+    await db.photos.add({
+      guid: "ph-cache",
+      parentType: "task",
+      parentGuid: "t1",
+      blob: cachedBlob,
+      thumb: cachedThumb,
+      width: 50,
+      height: 50,
+      createdAt: 1,
+      updatedAt: 100,
+      deletedAt: null,
+      remoteUrl: "u1/ph-cache.webp",
+    });
+
+    // Remote has newer metadata (updated_at=200, new dimensions).
+    const client = pullMockClient([
+      { ...remotePhotoRow("ph-cache", 200, 1200), width: 800, height: 600 },
+    ]);
+    await pullPhotoMetadata(client);
+
+    const row = await db.photos.where("guid").equals("ph-cache").first();
+    // Metadata updated.
+    expect(row!.width).toBe(800);
+    expect(row!.height).toBe(600);
+    expect(row!.updatedAt).toBe(200);
+    // Blob and thumb preserved — not wiped.
+    expect(row!.blob).not.toBeUndefined();
+    expect(row!.blob!.size).toBe(cachedBlob.size);
+    expect(row!.thumb).not.toBeUndefined();
+    expect(row!.thumb!.size).toBe(cachedThumb.size);
+  });
+
+  it("is a no-op when pullSince returns no rows", async () => {
+    const client = pullMockClient([]);
+    await pullPhotoMetadata(client);
+    // Cursor stays at 0 (default).
+    expect(await getPullCursor("photos")).toBe(0);
   });
 });
 

@@ -2,7 +2,10 @@ import { db, getMeta, setMeta } from "@/lib/db/schema";
 import type { Table } from "@/lib/sync/types";
 
 const PUSH_KEY = (t: Table) => `sync.lastPushedAt.${t}`;
-const PULL_KEY = (t: Table) => `sync.pullCursor.${t}`;
+// v2: cursor now tracks server_updated_at (server-stamped) rather than the
+// client's updated_at.  The key bump forces a one-time full re-pull on every
+// existing device — safe because applyRemoteRow is LWW-idempotent.
+const PULL_KEY = (t: Table) => `sync.pullCursor.v2.${t}`;
 
 export async function getLastPushedAt(t: Table): Promise<number> {
   return getMeta<number>(PUSH_KEY(t), 0);
