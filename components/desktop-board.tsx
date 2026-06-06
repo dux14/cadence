@@ -33,6 +33,7 @@ export function DesktopBoard() {
 
   // Pending focus restoration after keyboard transfer.
   const pendingFocusId = useRef<number | null>(null);
+  const pendingFocusAttempts = useRef(0);
 
   function announce(msg: string) {
     setAnnouncement((prev) => ({ text: msg, tick: prev.tick + 1 }));
@@ -40,9 +41,12 @@ export function DesktopBoard() {
 
   function requestFocus(id: number) {
     pendingFocusId.current = id;
+    pendingFocusAttempts.current = 0;
   }
 
   // Restore focus after useLiveQuery re-renders the task in its new column.
+  // Gives up after 3 failed attempts so a disappeared task doesn't keep the
+  // ref armed and steal focus on unrelated updates.
   useEffect(() => {
     const id = pendingFocusId.current;
     if (id == null) return;
@@ -52,8 +56,14 @@ export function DesktopBoard() {
     if (el) {
       el.focus();
       pendingFocusId.current = null;
+      pendingFocusAttempts.current = 0;
+    } else {
+      pendingFocusAttempts.current += 1;
+      if (pendingFocusAttempts.current >= 3) {
+        pendingFocusId.current = null;
+        pendingFocusAttempts.current = 0;
+      }
     }
-    // If el not yet in DOM, the next tasks update will retry.
   }, [tasks]);
 
   useEffect(() => {
@@ -136,14 +146,15 @@ export function DesktopBoard() {
           onRequestFocus={requestFocus}
         />
       ))}
-      {/* aria-live region for screen reader announcements */}
+      {/* aria-live region — stable node (no key), content mutation triggers SR announcement */}
       <div
         aria-live="polite"
+        aria-atomic="true"
         role="status"
         className="sr-only"
-        key={announcement.tick}
       >
         {announcement.text}
+        {" ".repeat(announcement.tick % 2)}
       </div>
     </div>
   );

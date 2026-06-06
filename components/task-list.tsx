@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { GripVertical } from "lucide-react";
 import type { Bucket, Project, Task } from "@/lib/types";
 import { BUCKETS } from "@/lib/types";
@@ -30,6 +31,15 @@ export function TaskList({
     (ids) => void reorderTasks(ids),
     bucket && onTransfer ? { bucket, onTransfer } : undefined,
   );
+
+  // Fix 2: optimistic order ref so fast consecutive keystrokes don't clobber
+  // each other while the Dexie round-trip is in flight.
+  const keyOrderRef = useRef<number[] | null>(null);
+  useEffect(() => {
+    // When useLiveQuery delivers a fresh resync, invalidate the optimistic ref
+    // so the next keystroke starts from the authoritative order.
+    keyOrderRef.current = null;
+  }, [order]);
 
   const bucketIds = BUCKETS.map((b) => b.id);
 
@@ -81,12 +91,27 @@ export function TaskList({
 
                           if (e.key === "ArrowUp" || e.key === "ArrowDown") {
                             const dir = e.key === "ArrowDown" ? 1 : -1;
-                            const next = moveByOffset(
-                              order.map((x) => x.id!),
-                              t.id!,
-                              dir,
-                            );
+                            // Fix 2: use optimistic ref if available so fast
+                            // keystrokes don't clobber each other.
+                            const base =
+                              keyOrderRef.current ?? order.map((x) => x.id!);
+                            const next = moveByOffset(base, t.id!, dir);
                             if (next === null) return;
+                            // Fix 4: clamp at done/not-done boundary.
+                            // Find the id at the destination position and check
+                            // if it crosses the done boundary.
+                            const fromIdx = base.indexOf(t.id!);
+                            const toIdx = fromIdx + dir;
+                            // toIdx is valid (moveByOffset returned non-null)
+                            const neighborId = base[toIdx];
+                            const neighborTask = tasks.find(
+                              (x) => x.id === neighborId,
+                            );
+                            if (!neighborTask) return; // defensive: id not in tasks
+                            const movingDone = t.status === "done";
+                            const neighborDone = neighborTask.status === "done";
+                            if (movingDone !== neighborDone) return; // boundary — no-op
+                            keyOrderRef.current = next;
                             void reorderTasks(next);
                             onAnnounce?.(
                               `Moved to position ${next.indexOf(t.id!) + 1} of ${next.length}`,
