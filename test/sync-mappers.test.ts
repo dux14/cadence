@@ -4,8 +4,14 @@ import {
   taskFromRemote,
   projectToRemote,
   photoToRemote,
+  ideaToRemote,
+  ideaFromRemote,
+  ideaRemoteProjectGuid,
+  backlogToRemote,
+  backlogFromRemote,
+  backlogRemotePromotedGuid,
 } from "@/lib/sync/mappers";
-import type { Task } from "@/lib/types";
+import type { Task, Idea, BacklogItem } from "@/lib/types";
 
 const baseTask: Task = {
   id: 1,
@@ -106,5 +112,129 @@ describe("task mappers", () => {
     });
     expect("blob" in r).toBe(false);
     expect("thumb" in r).toBe(false);
+  });
+});
+
+// ---- idea mappers ----
+
+const baseIdea: Idea = {
+  id: 10,
+  guid: "22222222-2222-4222-8222-222222222222",
+  projectId: 3,
+  text: "Build something great",
+  links: ["https://example.com"],
+  subtasks: [{ id: "si1", text: "sketch it", done: false }],
+  status: "open",
+  order: 1,
+  createdAt: 1100,
+  updatedAt: 5500,
+  due: 3000,
+  dueHasTime: true,
+  deletedAt: null,
+};
+
+describe("idea mappers", () => {
+  it("round-trips ideaToRemote → ideaFromRemote: deletedAt, dueHasTime, and ideaRemoteProjectGuid", () => {
+    const projectGuid = "proj-idea-guid-7";
+    const r = ideaToRemote(baseIdea, "user-42", projectGuid);
+    const back = ideaFromRemote(r);
+
+    // deletedAt survives the round-trip
+    expect(back.deletedAt).toBe(null);
+
+    // dueHasTime: true survives
+    expect(back.dueHasTime).toBe(true);
+
+    // other core fields
+    expect(back.guid).toBe(baseIdea.guid);
+    expect(back.text).toBe(baseIdea.text);
+    expect(back.links).toEqual(baseIdea.links);
+    expect(back.subtasks).toEqual(baseIdea.subtasks);
+    expect(back.updatedAt).toBe(baseIdea.updatedAt);
+
+    // local-only fields not present
+    expect(back).not.toHaveProperty("id");
+    expect(back).not.toHaveProperty("projectId");
+
+    // ideaRemoteProjectGuid returns the guid passed in
+    expect(ideaRemoteProjectGuid(r)).toBe(projectGuid);
+  });
+
+  it("dueHasTime normalises to false when absent on remote row", () => {
+    const r = ideaToRemote(
+      { ...baseIdea, dueHasTime: undefined },
+      "user-42",
+      null,
+    );
+    // due_has_time is stored as false when undefined
+    expect(r.due_has_time).toBe(false);
+    const back = ideaFromRemote(r);
+    expect(back.dueHasTime).toBe(false);
+  });
+
+  it("ideaRemoteProjectGuid returns null when no project guid", () => {
+    const r = ideaToRemote(baseIdea, "user-42", null);
+    expect(ideaRemoteProjectGuid(r)).toBe(null);
+  });
+});
+
+// ---- backlog mappers ----
+
+const baseBacklog: BacklogItem = {
+  id: 20,
+  guid: "33333333-3333-4333-8333-333333333333",
+  title: "Refactor auth module",
+  note: "See notion doc for context",
+  links: ["https://notion.so/doc"],
+  subtasks: [{ id: "bs1", text: "read doc", done: false }],
+  order: 2,
+  createdAt: 2000,
+  updatedAt: 6000,
+  due: 4000,
+  dueHasTime: false,
+  promotedProjectId: null,
+  deletedAt: null,
+};
+
+describe("backlog mappers", () => {
+  it("round-trip with note present: note survives as string", () => {
+    const promotedGuid = "proj-backlog-guid-5";
+    const r = backlogToRemote(baseBacklog, "user-42", promotedGuid);
+    const back = backlogFromRemote(r);
+
+    // note survives
+    expect(back.note).toBe("See notion doc for context");
+
+    // core fields
+    expect(back.guid).toBe(baseBacklog.guid);
+    expect(back.title).toBe(baseBacklog.title);
+    expect(back.links).toEqual(baseBacklog.links);
+    expect(back.subtasks).toEqual(baseBacklog.subtasks);
+    expect(back.updatedAt).toBe(baseBacklog.updatedAt);
+    expect(back.deletedAt).toBe(null);
+
+    // local-only fields not present
+    expect(back).not.toHaveProperty("id");
+    expect(back).not.toHaveProperty("promotedProjectId");
+
+    // backlogRemotePromotedGuid returns the guid passed in
+    expect(backlogRemotePromotedGuid(r)).toBe(promotedGuid);
+  });
+
+  it("round-trip with note absent: result is undefined, NOT null", () => {
+    const backlogNoNote: BacklogItem = { ...baseBacklog, note: undefined };
+    const r = backlogToRemote(backlogNoNote, "user-42", null);
+
+    // remote row stores null for missing note
+    expect(r.note).toBe(null);
+
+    const back = backlogFromRemote(r);
+
+    // after round-trip, note must be undefined (not null)
+    expect(back.note).toBeUndefined();
+    expect(back.note).not.toBeNull();
+
+    // backlogRemotePromotedGuid returns null when no promoted project
+    expect(backlogRemotePromotedGuid(r)).toBe(null);
   });
 });

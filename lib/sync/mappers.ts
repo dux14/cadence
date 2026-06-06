@@ -66,6 +66,8 @@ export function taskToRemote(
 }
 /** projectId is resolved by the caller (guid→local id lookup); not here. */
 export function taskFromRemote(r: RemoteRow): Omit<Task, "id" | "projectId"> {
+  // Remote normalises optional booleans to false; after one sync round-trip
+  // undefined becomes false (same semantics, LWW-safe — engine never diffs hydrated objects).
   return {
     guid: r.guid as string,
     title: r.title as string,
@@ -103,10 +105,10 @@ export function ideaToRemote(
     project_guid: projectGuid,
     text: i.text,
     status: i.status,
-    links: i.links ?? [],
+    links: i.links,
     due: i.due ?? null,
     due_has_time: i.dueHasTime ?? false,
-    subtasks: i.subtasks ?? [],
+    subtasks: i.subtasks,
     order: i.order,
     created_at: i.createdAt,
     updated_at: i.updatedAt,
@@ -114,6 +116,8 @@ export function ideaToRemote(
   };
 }
 export function ideaFromRemote(r: RemoteRow): Omit<Idea, "id" | "projectId"> {
+  // Remote normalises optional booleans to false; after one sync round-trip
+  // undefined becomes false (same semantics, LWW-safe — engine never diffs hydrated objects).
   return {
     guid: r.guid as string,
     text: r.text as string,
@@ -143,10 +147,10 @@ export function backlogToRemote(
     user_id: userId,
     title: b.title,
     note: b.note ?? null,
-    links: b.links ?? [],
+    links: b.links,
     due: b.due ?? null,
     due_has_time: b.dueHasTime ?? false,
-    subtasks: b.subtasks ?? [],
+    subtasks: b.subtasks,
     order: b.order,
     created_at: b.createdAt,
     promoted_project_guid: promotedProjectGuid,
@@ -157,10 +161,12 @@ export function backlogToRemote(
 export function backlogFromRemote(
   r: RemoteRow,
 ): Omit<BacklogItem, "id" | "promotedProjectId"> {
+  // Remote normalises optional booleans to false; after one sync round-trip
+  // undefined becomes false (same semantics, LWW-safe — engine never diffs hydrated objects).
   return {
     guid: r.guid as string,
     title: r.title as string,
-    note: (r.note as string | undefined) ?? undefined,
+    note: r.note != null ? (r.note as string) : undefined,
     links: (r.links as string[]) ?? [],
     due: (r.due as number | null) ?? null,
     dueHasTime: Boolean(r.due_has_time),
