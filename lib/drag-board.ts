@@ -1,5 +1,6 @@
 import type { Bucket } from "./types";
 
+/** Horizontal span only — top/bottom intentionally omitted. */
 export interface DOMRectLike {
   left: number;
   right: number;
@@ -16,13 +17,24 @@ export function resolveBucketAt(x: number, columns: ColumnRect[]): Bucket | null
   for (const c of columns) {
     if (x >= c.rect.left && x <= c.rect.right) return c.bucket;
   }
-  // Fuera de límites: clamp a la columna de borde más cercana.
-  const first = columns[0];
-  if (x < first.rect.left) return first.bucket;
-  const last = columns[columns.length - 1];
-  return last.bucket;
+  // No direct hit (x cae en un hueco entre columnas, o fuera de rango).
+  // Devuelve la columna cuyo borde (left o right) esté a distancia mínima de x.
+  // Esto cubre automáticamente los clamps fuera de rango (x antes del primer
+  // left → primera columna; x después del último right → última columna).
+  let nearest = columns[0];
+  let minDist = Math.min(Math.abs(x - nearest.rect.left), Math.abs(x - nearest.rect.right));
+  for (let i = 1; i < columns.length; i++) {
+    const c = columns[i];
+    const dist = Math.min(Math.abs(x - c.rect.left), Math.abs(x - c.rect.right));
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = c;
+    }
+  }
+  return nearest.bucket;
 }
 
+/** Precondition: ids must be unique (DB auto-increment). */
 export function applyReorder(ids: number[], dragId: number, overId: number): number[] {
   if (dragId === overId) return ids;
   const from = ids.indexOf(dragId);
@@ -34,6 +46,14 @@ export function applyReorder(ids: number[], dragId: number, overId: number): num
   return next;
 }
 
+/**
+ * Moves `id` from bucket `from` to bucket `to`.
+ *
+ * - `overId` absent or equal to `id`: inserts at the end of the destination.
+ * - `overId` present but not found in destination: also inserts at the end.
+ * - `id` absent in source: caller controls state; src filter is a no-op and
+ *   the id is still inserted into the destination as requested.
+ */
 export function applyTransfer(
   board: Partial<Record<Bucket, number[]>>,
   id: number,

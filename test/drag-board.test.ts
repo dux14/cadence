@@ -27,6 +27,30 @@ describe("resolveBucketAt", () => {
   it("returns null when there are no columns", () => {
     expect(resolveBucketAt(100, [])).toBeNull();
   });
+
+  describe("nearest-edge resolution for inter-column gaps (gap-4 ≈ 16 px)", () => {
+    const gapped: ColumnRect[] = [
+      { bucket: "today",    rect: { left: 0,   right: 284 } },
+      { bucket: "tomorrow", rect: { left: 300, right: 584 } },
+      { bucket: "week",     rect: { left: 600, right: 884 } },
+    ];
+
+    it("resolves to 'today' when x=290 (6 px from right-of-today, 10 from left-of-tomorrow)", () => {
+      expect(resolveBucketAt(290, gapped)).toBe("today");
+    });
+
+    it("resolves to 'tomorrow' when x=296 (4 px from left-of-tomorrow, 12 from right-of-today)", () => {
+      expect(resolveBucketAt(296, gapped)).toBe("tomorrow");
+    });
+
+    it("still clamps to 'today' when x is before the first column (x=-10)", () => {
+      expect(resolveBucketAt(-10, gapped)).toBe("today");
+    });
+
+    it("still clamps to 'week' when x is after the last column (x=9999)", () => {
+      expect(resolveBucketAt(9999, gapped)).toBe("week");
+    });
+  });
 });
 
 describe("applyReorder", () => {
