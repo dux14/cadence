@@ -182,6 +182,29 @@ export async function reorderTasks(orderedIds: number[]): Promise<void> {
   });
 }
 
+/**
+ * Mueve una task a otro bucket y reescribe el order de la columna destino
+ * según `orderedIds` (los ids que deben quedar en ese bucket, en orden).
+ * Usado por el drag horizontal del board desktop.
+ */
+export async function transferTask(
+  id: number,
+  toBucket: Bucket,
+  orderedIds: number[],
+): Promise<void> {
+  const now = touch();
+  await db.transaction("rw", db.tasks, async () => {
+    await db.tasks.update(id, {
+      bucket: toBucket,
+      dayKey: toBucket === "today" ? localDateKey() : null,
+      updatedAt: now,
+    });
+    await Promise.all(
+      orderedIds.map((tid, i) => db.tasks.update(tid, { order: i, updatedAt: now })),
+    );
+  });
+}
+
 // ---------- Ideas ----------
 
 export async function addIdea(projectId: number, text: string): Promise<number> {
