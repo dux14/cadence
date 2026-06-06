@@ -1,13 +1,46 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowLeft, Check, History as HistoryIcon } from "lucide-react";
 import { db } from "@/lib/db/schema";
 import { Empty } from "@/components/empty";
 import { ProjectTag } from "@/components/project-tag";
+import { PhotoChip } from "@/components/photo-chip";
+import { PhotoViewer } from "@/components/photo-viewer";
+import { listPhotos } from "@/lib/db/photos";
 import { formatHistoryDate, localDateKey } from "@/lib/date";
 import type { Project, Task } from "@/lib/types";
+
+/** Per-task photo chip + viewer; isolates live photo query out of .map(). */
+function HistoryTaskPhotos({ guid }: { guid: string }) {
+  const photos = useLiveQuery(() => listPhotos(guid), [guid], []);
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+
+  if (photos.length === 0) return null;
+
+  return (
+    <>
+      <button
+        type="button"
+        className="shrink-0"
+        aria-label={`View ${photos.length} photo${photos.length === 1 ? "" : "s"}`}
+        onClick={() => setViewerIndex(0)}
+      >
+        <PhotoChip count={photos.length} />
+      </button>
+      {viewerIndex !== null && photos.length > 0 && (
+        <PhotoViewer
+          photos={photos}
+          index={viewerIndex}
+          onIndexChange={setViewerIndex}
+          onClose={() => setViewerIndex(null)}
+        />
+      )}
+    </>
+  );
+}
 
 export default function HistoryPage() {
   const tasks = useLiveQuery(
@@ -73,6 +106,7 @@ export default function HistoryPage() {
                         color={projectMap.get(t.projectId)!.color}
                       />
                     )}
+                    <HistoryTaskPhotos guid={t.guid} />
                   </div>
                 ))}
               </div>
