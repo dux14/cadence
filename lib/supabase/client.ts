@@ -3,8 +3,9 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Static export: this module only runs in the browser. We tolerate a missing
-// env at build time (export prerender) and fail loudly at first client use.
+// Static export: NEXT_PUBLIC_* is inlined at build time, so the top-level
+// reads tolerate undefined during build/prerender; getSupabase() throws if
+// called before the env vars are available (i.e. first client use).
 let cached: SupabaseClient | null = null;
 
 export function getSupabase(): SupabaseClient {
