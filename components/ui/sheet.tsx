@@ -52,13 +52,19 @@ export const SheetClose = Dialog.Close;
  * md:bottom-auto that centres the modal on desktop.
  */
 function trackKeyboardInset(el: HTMLElement): (() => void) | undefined {
-  // Only activate on mobile — desktop uses a centred modal and a physical
-  // keyboard does not shrink visualViewport, but we still skip the inline
-  // style so md:bottom-auto (Tailwind) is never clobbered.
+  // Skip registering listeners entirely when mounting on desktop — the modal
+  // is centred and a physical keyboard does not shrink visualViewport.
+  // The per-invocation guard inside update() is the authoritative check: if
+  // the user resizes to ≥768 px while the sheet is open, we clear the inline
+  // style so md:bottom-auto (Tailwind) is never clobbered by an inline value.
   if (window.matchMedia("(min-width: 768px)").matches) return;
   const vv = window.visualViewport;
   if (!vv) return;
   const update = () => {
+    if (window.matchMedia("(min-width: 768px)").matches) {
+      el.style.bottom = "";
+      return;
+    }
     const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
     el.style.bottom = `${inset}px`;
   };
