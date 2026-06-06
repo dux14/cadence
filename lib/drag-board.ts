@@ -1,5 +1,34 @@
 import type { Bucket } from "./types";
 
+/** Bucket adyacente en la dirección dada, o null en el borde. */
+export function adjacentBucket(
+  current: Bucket,
+  dir: -1 | 1,
+  buckets: readonly Bucket[],
+): Bucket | null {
+  const idx = buckets.indexOf(current);
+  if (idx < 0) return null;
+  const next = idx + dir;
+  if (next < 0 || next >= buckets.length) return null;
+  return buckets[next];
+}
+
+/** Mueve `id` un offset dentro de `ids`; null si id ausente o el movimiento sale del rango (no-op). */
+export function moveByOffset(
+  ids: number[],
+  id: number,
+  offset: number,
+): number[] | null {
+  const from = ids.indexOf(id);
+  if (from < 0) return null;
+  const to = from + offset;
+  if (to < 0 || to >= ids.length) return null;
+  const next = ids.slice();
+  next.splice(from, 1);
+  next.splice(to, 0, id);
+  return next;
+}
+
 /** Horizontal span only — top/bottom intentionally omitted. */
 export interface DOMRectLike {
   left: number;

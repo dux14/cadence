@@ -3,6 +3,8 @@ import {
   resolveBucketAt,
   applyReorder,
   applyTransfer,
+  adjacentBucket,
+  moveByOffset,
   type ColumnRect,
 } from "@/lib/drag-board";
 
@@ -91,5 +93,76 @@ describe("applyTransfer", () => {
   it("is a no-op when source === target", () => {
     const board = { today: [1, 2], tomorrow: [3] };
     expect(applyTransfer(board, 1, "today", "today")).toEqual(board);
+  });
+});
+
+describe("adjacentBucket", () => {
+  const buckets = ["today", "tomorrow", "week"] as const;
+
+  it("today + 1 = tomorrow", () => {
+    expect(adjacentBucket("today", 1, buckets)).toBe("tomorrow");
+  });
+
+  it("tomorrow - 1 = today", () => {
+    expect(adjacentBucket("tomorrow", -1, buckets)).toBe("today");
+  });
+
+  it("tomorrow + 1 = week", () => {
+    expect(adjacentBucket("tomorrow", 1, buckets)).toBe("week");
+  });
+
+  it("week - 1 = tomorrow", () => {
+    expect(adjacentBucket("week", -1, buckets)).toBe("tomorrow");
+  });
+
+  it("today - 1 = null (left edge)", () => {
+    expect(adjacentBucket("today", -1, buckets)).toBeNull();
+  });
+
+  it("week + 1 = null (right edge)", () => {
+    expect(adjacentBucket("week", 1, buckets)).toBeNull();
+  });
+
+  it("returns null when current bucket is not present in buckets", () => {
+    expect(adjacentBucket("today", 1, ["tomorrow", "week"] as readonly string[] as readonly any[])).toBeNull();
+  });
+});
+
+describe("moveByOffset", () => {
+  it("moves id forward by +1 in the middle", () => {
+    const result = moveByOffset([1, 2, 3, 4], 2, 1);
+    expect(result).toEqual([1, 3, 2, 4]);
+  });
+
+  it("moves id backward by -1 in the middle", () => {
+    const result = moveByOffset([1, 2, 3, 4], 3, -1);
+    expect(result).toEqual([1, 3, 2, 4]);
+  });
+
+  it("returns null when moving first item backward (-1)", () => {
+    expect(moveByOffset([1, 2, 3], 1, -1)).toBeNull();
+  });
+
+  it("returns null when moving last item forward (+1)", () => {
+    expect(moveByOffset([1, 2, 3], 3, 1)).toBeNull();
+  });
+
+  it("returns null when id is not in the array", () => {
+    expect(moveByOffset([1, 2, 3], 99, 1)).toBeNull();
+  });
+
+  it("does not mutate the input array", () => {
+    const input = [1, 2, 3, 4];
+    const result = moveByOffset(input, 2, 1);
+    expect(input).toEqual([1, 2, 3, 4]);
+    expect(result).not.toBe(input);
+  });
+
+  it("moves item from position 0 to position 1 (+1)", () => {
+    expect(moveByOffset([10, 20, 30], 10, 1)).toEqual([20, 10, 30]);
+  });
+
+  it("moves item from last to second-to-last (-1)", () => {
+    expect(moveByOffset([10, 20, 30], 30, -1)).toEqual([10, 30, 20]);
   });
 });
