@@ -1,6 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RemoteRow, SyncClient, Table } from "@/lib/sync/types";
 
+// PostgREST default row limit is 1 000. We page with the same size so a
+// large initial migration never silently truncates.  The secondary sort on
+// guid makes tie-breaks on updated_at deterministic so rows are never
+// duplicated or skipped across page boundaries.
+const PULL_PAGE_SIZE = 1000;
+
 export function createSupabaseSyncClient(sb: SupabaseClient): SyncClient {
   return {
     async getUserId() {
@@ -15,19 +21,32 @@ export function createSupabaseSyncClient(sb: SupabaseClient): SyncClient {
         p_rows: rows,
       });
       if (error) throw error;
-      // RPC returns the set of guids it processed.
+      // RPC returns only the guids that passed the LWW where-clause.
       const accepted = Array.isArray(data) ? (data as string[]) : [];
       return { accepted };
     },
 
     async pullSince(table: Table, cursor: number) {
-      const { data, error } = await sb
-        .from(table)
-        .select("*")
-        .gt("updated_at", cursor)
-        .order("updated_at", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as RemoteRow[];
+      // Paginate to avoid silent truncation at PostgREST's 1 000-row default.
+      // Sort by (updated_at ASC, guid ASC) so tie-breaks are stable across
+      // page boundaries and no rows are duplicated or skipped.
+      const rows: RemoteRow[] = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await sb
+          .from(table)
+          .select("*")
+          .gt("updated_at", cursor)
+          .order("updated_at", { ascending: true })
+          .order("guid", { ascending: true })
+          .range(from, from + PULL_PAGE_SIZE - 1);
+        if (error) throw error;
+        const page = (data ?? []) as RemoteRow[];
+        rows.push(...page);
+        if (page.length < PULL_PAGE_SIZE) break;
+        from += PULL_PAGE_SIZE;
+      }
+      return rows;
     },
 
     async countLive(table: Table) {
