@@ -5,6 +5,7 @@ import { reparentPhotos, tombstonePhotosForParent } from "@/lib/db/photos";
 import { PROJECT_COLORS } from "@/lib/constants";
 import { localDateKey } from "@/lib/date";
 import { newGuid } from "@/lib/id";
+import { scheduleSync } from "@/lib/sync/orchestrator";
 import type {
   Bucket,
   BacklogItem,
@@ -28,7 +29,7 @@ export async function addProject(name: string, kind: ProjectKind): Promise<numbe
   const max = await maxOrder(db.projects);
   const color = PROJECT_COLORS[count % PROJECT_COLORS.length];
   const now = touch();
-  return db.projects.add({
+  const id = await db.projects.add({
     guid: newGuid(),
     name: name.trim(),
     kind,
@@ -39,6 +40,8 @@ export async function addProject(name: string, kind: ProjectKind): Promise<numbe
     archivedAt: null,
     deletedAt: null,
   });
+  scheduleSync();
+  return id;
 }
 
 export async function updateProject(
@@ -50,6 +53,7 @@ export async function updateProject(
     ...(changes.name !== undefined ? { name: changes.name.trim() } : {}),
     updatedAt: touch(),
   });
+  scheduleSync();
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -72,6 +76,7 @@ export async function deleteProject(id: number): Promise<void> {
       await db.tasks.update(t.id!, { projectId: null, updatedAt: now });
     await db.projects.update(id, { deletedAt: now, updatedAt: now });
   });
+  scheduleSync();
 }
 
 // ---------- Tasks ----------
@@ -87,7 +92,7 @@ export async function addTask(input: {
 }): Promise<number> {
   const max = await maxTaskOrder(input.bucket);
   const now = touch();
-  return db.tasks.add({
+  const id = await db.tasks.add({
     guid: newGuid(),
     title: input.title.trim(),
     links: input.links ?? [],
@@ -106,6 +111,8 @@ export async function addTask(input: {
     archived: false,
     deletedAt: null,
   });
+  scheduleSync();
+  return id;
 }
 
 export async function listTasks(bucket: Bucket): Promise<Task[]> {
@@ -121,6 +128,7 @@ export async function cycleTaskStatus(task: Task): Promise<void> {
   // blocked is off-cycle; tapping a blocked task returns it to todo.
   const next = i === -1 ? "todo" : STATUS_CYCLE[(i + 1) % STATUS_CYCLE.length];
   await setTaskStatus(task.id!, next);
+  scheduleSync();
 }
 
 /** Explicit status set (used by the sheet selector, incl. blocked). */
@@ -130,11 +138,13 @@ export async function setTaskStatus(id: number, status: TaskStatus): Promise<voi
     completedAt: status === "done" ? Date.now() : null,
     updatedAt: touch(),
   });
+  scheduleSync();
 }
 
 /** Back-compat alias for the old binary toggle (toggles done <-> todo). */
 export async function toggleTask(task: Task): Promise<void> {
   await setTaskStatus(task.id!, task.status === "done" ? "todo" : "done");
+  scheduleSync();
 }
 
 export async function updateTask(
@@ -153,6 +163,7 @@ export async function updateTask(
     ...(changes.title !== undefined ? { title: changes.title.trim() } : {}),
     updatedAt: touch(),
   });
+  scheduleSync();
 }
 
 export async function moveTask(id: number, bucket: Bucket): Promise<void> {
@@ -163,6 +174,7 @@ export async function moveTask(id: number, bucket: Bucket): Promise<void> {
     dayKey: bucket === "today" ? localDateKey() : null,
     updatedAt: touch(),
   });
+  scheduleSync();
 }
 
 export async function deleteTask(id: number): Promise<void> {
@@ -172,6 +184,7 @@ export async function deleteTask(id: number): Promise<void> {
     await db.tasks.update(id, { deletedAt: now, updatedAt: now });
     if (task) await tombstonePhotosForParent(task.guid);
   });
+  scheduleSync();
 }
 
 export async function reorderTasks(orderedIds: number[]): Promise<void> {
@@ -181,6 +194,7 @@ export async function reorderTasks(orderedIds: number[]): Promise<void> {
       orderedIds.map((id, i) => db.tasks.update(id, { order: i, updatedAt: now })),
     );
   });
+  scheduleSync();
 }
 
 /**
@@ -204,6 +218,7 @@ export async function transferTask(
       orderedIds.map((tid, i) => db.tasks.update(tid, { order: i, updatedAt: now })),
     );
   });
+  scheduleSync();
 }
 
 // ---------- Ideas ----------
@@ -211,7 +226,7 @@ export async function transferTask(
 export async function addIdea(projectId: number, text: string): Promise<number> {
   const max = await maxOrderWhere(db.ideas, "projectId", projectId);
   const now = touch();
-  return db.ideas.add({
+  const id = await db.ideas.add({
     guid: newGuid(),
     projectId,
     text: text.trim(),
@@ -225,6 +240,8 @@ export async function addIdea(projectId: number, text: string): Promise<number> 
     dueHasTime: false,
     deletedAt: null,
   });
+  scheduleSync();
+  return id;
 }
 
 export async function listIdeas(projectId: number): Promise<Idea[]> {
@@ -234,6 +251,7 @@ export async function listIdeas(projectId: number): Promise<Idea[]> {
 
 export async function updateIdeaText(id: number, text: string): Promise<void> {
   await db.ideas.update(id, { text: text.trim(), updatedAt: touch() });
+  scheduleSync();
 }
 
 export async function updateIdea(
@@ -251,6 +269,7 @@ export async function updateIdea(
     ...(changes.text !== undefined ? { text: changes.text.trim() } : {}),
     updatedAt: touch(),
   });
+  scheduleSync();
 }
 
 export async function deleteIdea(id: number): Promise<void> {
@@ -260,6 +279,7 @@ export async function deleteIdea(id: number): Promise<void> {
     await db.ideas.update(id, { deletedAt: now, updatedAt: now });
     if (idea) await tombstonePhotosForParent(idea.guid);
   });
+  scheduleSync();
 }
 
 export async function reorderIdeas(orderedIds: number[]): Promise<void> {
@@ -269,6 +289,7 @@ export async function reorderIdeas(orderedIds: number[]): Promise<void> {
       orderedIds.map((id, i) => db.ideas.update(id, { order: i, updatedAt: now })),
     );
   });
+  scheduleSync();
 }
 
 /** Promote an idea into a real task, carrying links/subtasks/due. */
@@ -288,6 +309,7 @@ export async function promoteIdeaToTask(idea: Idea, bucket: Bucket): Promise<voi
     if (task) await reparentPhotos(idea.guid, "task", task.guid);
     await db.ideas.update(idea.id!, { status: "promoted", updatedAt: touch() });
   });
+  scheduleSync();
 }
 
 // ---------- Backlog (Histórico) ----------
@@ -295,7 +317,7 @@ export async function promoteIdeaToTask(idea: Idea, bucket: Bucket): Promise<voi
 export async function addBacklog(title: string, note?: string): Promise<number> {
   const max = await maxOrder(db.backlog);
   const now = touch();
-  return db.backlog.add({
+  const id = await db.backlog.add({
     guid: newGuid(),
     title: title.trim(),
     note: note?.trim() || undefined,
@@ -309,6 +331,8 @@ export async function addBacklog(title: string, note?: string): Promise<number> 
     promotedProjectId: null,
     deletedAt: null,
   });
+  scheduleSync();
+  return id;
 }
 
 export async function listBacklog(): Promise<BacklogItem[]> {
@@ -332,6 +356,7 @@ export async function updateBacklog(
     ...(changes.title !== undefined ? { title: changes.title.trim() } : {}),
     updatedAt: touch(),
   });
+  scheduleSync();
 }
 
 export async function deleteBacklog(id: number): Promise<void> {
@@ -341,6 +366,7 @@ export async function deleteBacklog(id: number): Promise<void> {
     await db.backlog.update(id, { deletedAt: now, updatedAt: now });
     if (item) await tombstonePhotosForParent(item.guid);
   });
+  scheduleSync();
 }
 
 /** Promote a parked Histórico idea into a full project. */
@@ -358,6 +384,7 @@ export async function promoteBacklogToProject(
       updatedAt: now,
     });
   });
+  scheduleSync();
   return projectId;
 }
 

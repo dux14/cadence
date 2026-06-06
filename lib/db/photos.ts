@@ -1,6 +1,7 @@
 import { syncClock } from "@/lib/db/clock";
 import { db } from "@/lib/db/schema";
 import { newGuid } from "@/lib/id";
+import { scheduleSync } from "@/lib/sync/orchestrator";
 import type { Photo, PhotoParentType } from "@/lib/types";
 
 export interface AddPhotoInput {
@@ -15,7 +16,7 @@ export interface AddPhotoInput {
 /** Insert a fully-formed photo row. The binary lives only here. */
 export async function addPhoto(input: AddPhotoInput): Promise<number> {
   const now = syncClock();
-  return db.photos.add({
+  const id = await db.photos.add({
     guid: newGuid(),
     parentType: input.parentType,
     parentGuid: input.parentGuid,
@@ -28,6 +29,8 @@ export async function addPhoto(input: AddPhotoInput): Promise<number> {
     deletedAt: null,
     remoteUrl: null,
   });
+  scheduleSync();
+  return id;
 }
 
 /** Live photos for a parent, oldest first. */
@@ -42,6 +45,7 @@ export async function listPhotos(parentGuid: string): Promise<Photo[]> {
 export async function tombstonePhoto(id: number): Promise<void> {
   const now = syncClock();
   await db.photos.update(id, { deletedAt: now, updatedAt: now });
+  scheduleSync();
 }
 
 /**
@@ -71,6 +75,7 @@ export async function reparentPhotos(
         ),
     );
   });
+  scheduleSync();
 }
 
 /** Tombstone all live photos of a parent (parent entity deleted). */
@@ -91,4 +96,5 @@ export async function tombstonePhotosForParent(
         ),
     );
   });
+  scheduleSync();
 }
