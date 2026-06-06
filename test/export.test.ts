@@ -127,4 +127,39 @@ describe("exportSnapshot", () => {
     expect(photo.width).toBe(320);
     expect(photo.height).toBe(240);
   });
+
+  it("round-trips blobs larger than one base64 chunk", async () => {
+    const pid = await addProject("HKN", "active");
+    const tid = await addTask({ title: "task", projectId: pid, bucket: "today" });
+    const task = await db.tasks.get(tid);
+    const guid = task!.guid;
+
+    const size = 0x8000 + 5;
+    const bytes = new Uint8Array(size);
+    for (let i = 0; i < size; i++) bytes[i] = i % 256;
+
+    const thumbBytes = new Uint8Array([1, 2, 3]);
+
+    const photoBlob = new Blob([bytes], { type: "image/webp" });
+    const thumbBlob = new Blob([thumbBytes], { type: "image/webp" });
+
+    await addPhoto({
+      parentType: "task",
+      parentGuid: guid,
+      blob: photoBlob,
+      thumb: thumbBlob,
+      width: 512,
+      height: 512,
+    });
+
+    const snap = await exportSnapshot();
+    expect(snap.photos.length).toBe(1);
+
+    const photo = snap.photos[0];
+    const decodedBlob = Uint8Array.from(atob(photo.blob), (c) => c.charCodeAt(0));
+    expect(decodedBlob).toEqual(bytes);
+
+    const decodedThumb = Uint8Array.from(atob(photo.thumb), (c) => c.charCodeAt(0));
+    expect(decodedThumb).toEqual(thumbBytes);
+  });
 });
