@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import "fake-indexeddb/auto";
 import { db } from "@/lib/db/schema";
 import type { RemoteRow, SyncClient, Table } from "@/lib/sync/types";
-import { pushTable, pullTable, migrateInitial, verifyCounts } from "@/lib/sync/engine";
-import { getPullCursor } from "@/lib/sync/dirty";
+import { pushTable, pullTable, migrateInitial, verifyCounts, resolvePendingRelations } from "@/lib/sync/engine";
+import { getPullCursor, getLastPushedAt, setPullCursor } from "@/lib/sync/dirty";
 
 function makeMockClient(userId: string | null): {
   client: SyncClient;
@@ -187,5 +187,176 @@ describe("migrateInitial + verifyCounts", () => {
     store.get("tasks")!.clear();
     const counts = await verifyCounts(client);
     expect(counts.tasks.local).not.toBe(counts.tasks.remote);
+  });
+});
+
+// ---- NEW TESTS (quality review) ----
+
+describe("C1: LWW-rejected push stays dirty", () => {
+  it("does not advance lastPushedAt when server rejects the row (server is newer)", async () => {
+    const { client } = makeMockClient("u1");
+    // Seed the server with g1@200 (newer than what we'll push locally).
+    await client.upsert("tasks", [{
+      guid: "g1", user_id: "u1", title: "server-version", links: [],
+      project_guid: null, bucket: "today", status: "todo", order: 0,
+      created_at: 1, completed_at: null, due: null, due_has_time: false,
+      subtasks: [], carried: false, day_key: null, archived: false,
+      archived_at: null, updated_at: 200, deleted_at: null,
+    }]);
+
+    // Local g1@150 — older than server; server will reject it.
+    await db.tasks.add({
+      guid: "g1", title: "local-old", links: [], projectId: null, bucket: "today",
+      status: "todo", order: 0, createdAt: 1, completedAt: null, due: null,
+      dueHasTime: false, subtasks: [], carried: false, dayKey: null,
+      archived: false, archivedAt: null, updatedAt: 150, deletedAt: null,
+    });
+
+    await pushTable("tasks", client, "u1");
+
+    // lastPushedAt must NOT have advanced to 150 (row still dirty).
+    const cursor = await getLastPushedAt("tasks");
+    expect(cursor).toBeLessThan(150);
+
+    // Now pull: server row @200 should overwrite local.
+    await pullTable("tasks", client);
+    const row = await db.tasks.where("guid").equals("g1").first();
+    expect(row!.title).toBe("server-version");
+    expect(row!.updatedAt).toBe(200);
+  });
+});
+
+describe("I2: orphan guid re-resolution", () => {
+  it("re-resolves task projectId when project arrives later", async () => {
+    const { client } = makeMockClient("u1");
+
+    // Pull a task with a project_guid that doesn't exist locally yet.
+    await client.upsert("tasks", [{
+      guid: "t-orphan", user_id: "u1", title: "orphan task", links: [],
+      project_guid: "pg-future", bucket: "today", status: "todo", order: 0,
+      created_at: 1, completed_at: null, due: null, due_has_time: false,
+      subtasks: [], carried: false, day_key: null, archived: false,
+      archived_at: null, updated_at: 100, deleted_at: null,
+    }]);
+    await pullTable("tasks", client);
+
+    const orphan = await db.tasks.where("guid").equals("t-orphan").first();
+    // projectId is null (not found); _pendingProjectGuid is set.
+    expect(orphan).toBeDefined();
+    expect(orphan!.projectId).toBeNull();
+    expect((orphan as unknown as Record<string, unknown>)._pendingProjectGuid).toBe("pg-future");
+
+    // Now the project arrives via pull.
+    await client.upsert("projects", [{
+      guid: "pg-future", user_id: "u1", name: "Future Project", kind: "active",
+      color: "#aaa", order: 1, created_at: 1, archived_at: null,
+      updated_at: 50, deleted_at: null,
+    }]);
+    await pullTable("projects", client);
+
+    // resolvePendingRelations should wire up the projectId.
+    await resolvePendingRelations();
+
+    const resolved = await db.tasks.where("guid").equals("t-orphan").first();
+    expect(resolved!.projectId).not.toBeNull();
+    expect((resolved as unknown as Record<string, unknown>)._pendingProjectGuid).toBeNull();
+  });
+
+  it("idea with absent project gets projectId:0 AND _pendingProjectGuid set (not bare 0)", async () => {
+    const { client } = makeMockClient("u1");
+
+    await client.upsert("ideas", [{
+      guid: "i-orphan", user_id: "u1", project_guid: "pg-missing",
+      text: "orphan idea", status: "open", links: [], due: null,
+      due_has_time: false, subtasks: [], order: 0,
+      created_at: 1, updated_at: 100, deleted_at: null,
+    }]);
+    await pullTable("ideas", client);
+
+    const idea = await db.ideas.where("guid").equals("i-orphan").first();
+    expect(idea).toBeDefined();
+    // placeholder 0 is required (Idea.projectId: number)
+    expect(idea!.projectId).toBe(0);
+    // but _pendingProjectGuid must be set so we can re-resolve later
+    expect((idea as unknown as Record<string, unknown>)._pendingProjectGuid).toBe("pg-missing");
+  });
+});
+
+describe("I2: tombstone tie — remote wins on equal updatedAt", () => {
+  it("deletes local row when remote tombstone has same updated_at", async () => {
+    const { client } = makeMockClient("u1");
+
+    await db.tasks.add({
+      guid: "g-tie", title: "local-tie", links: [], projectId: null,
+      bucket: "today", status: "todo", order: 0, createdAt: 1,
+      completedAt: null, due: null, dueHasTime: false, subtasks: [],
+      carried: false, dayKey: null, archived: false, archivedAt: null,
+      updatedAt: 500, deletedAt: null,
+    });
+
+    // Remote tombstone with same updated_at=500 → tie → remote wins → delete.
+    await client.upsert("tasks", [{
+      guid: "g-tie", user_id: "u1", title: "local-tie", links: [],
+      project_guid: null, bucket: "today", status: "todo", order: 0,
+      created_at: 1, completed_at: null, due: null, due_has_time: false,
+      subtasks: [], carried: false, day_key: null, archived: false,
+      archived_at: null, updated_at: 500, deleted_at: 500,
+    }]);
+
+    await pullTable("tasks", client);
+
+    const row = await db.tasks.where("guid").equals("g-tie").first();
+    expect(row).toBeUndefined();
+  });
+});
+
+describe("re-pull idempotence", () => {
+  it("produces no duplicates and same final state when pull cursor is rewound", async () => {
+    const { client } = makeMockClient("u1");
+
+    // Populate server with two tasks.
+    await client.upsert("tasks", [
+      {
+        guid: "r1", user_id: "u1", title: "task-one", links: [],
+        project_guid: null, bucket: "today", status: "todo", order: 0,
+        created_at: 1, completed_at: null, due: null, due_has_time: false,
+        subtasks: [], carried: false, day_key: null, archived: false,
+        archived_at: null, updated_at: 100, deleted_at: null,
+      },
+      {
+        guid: "r2", user_id: "u1", title: "task-two", links: [],
+        project_guid: null, bucket: "week", status: "todo", order: 1,
+        created_at: 2, completed_at: null, due: null, due_has_time: false,
+        subtasks: [], carried: false, day_key: null, archived: false,
+        archived_at: null, updated_at: 200, deleted_at: null,
+      },
+    ]);
+
+    // First pull.
+    await pullTable("tasks", client);
+    const cursorAfterFirst = await getPullCursor("tasks");
+
+    // Rewind cursor to before first pull.
+    await setPullCursor("tasks", 0);
+
+    // Re-pull.
+    await pullTable("tasks", client);
+
+    // No duplicates: each guid appears exactly once.
+    const all = await db.tasks.toArray();
+    const countByGuid = new Map<string, number>();
+    for (const t of all) countByGuid.set(t.guid, (countByGuid.get(t.guid) ?? 0) + 1);
+    expect(countByGuid.get("r1")).toBe(1);
+    expect(countByGuid.get("r2")).toBe(1);
+
+    // Cursor is back to the same value as after the first pull.
+    const cursorAfterSecond = await getPullCursor("tasks");
+    expect(cursorAfterSecond).toBe(cursorAfterFirst);
+
+    // Final state is identical.
+    const r1 = await db.tasks.where("guid").equals("r1").first();
+    const r2 = await db.tasks.where("guid").equals("r2").first();
+    expect(r1!.title).toBe("task-one");
+    expect(r2!.title).toBe("task-two");
   });
 });
