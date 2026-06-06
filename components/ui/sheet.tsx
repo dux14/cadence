@@ -47,8 +47,15 @@ export const SheetClose = Dialog.Close;
  * iOS Safari overlays the keyboard instead of resizing the viewport, so a
  * bottom-0 sheet ends up hidden behind it. While the sheet is mounted, track
  * the visualViewport and lift the sheet by the keyboard's overlap.
+ *
+ * Gated to mobile (< 768 px) so inline style.bottom never overrides the
+ * md:bottom-auto that centres the modal on desktop.
  */
 function trackKeyboardInset(el: HTMLElement): (() => void) | undefined {
+  // Only activate on mobile — desktop uses a centred modal and a physical
+  // keyboard does not shrink visualViewport, but we still skip the inline
+  // style so md:bottom-auto (Tailwind) is never clobbered.
+  if (window.matchMedia("(min-width: 768px)").matches) return;
   const vv = window.visualViewport;
   if (!vv) return;
   const update = () => {
@@ -79,12 +86,15 @@ export function SheetContent({
       <Dialog.Content
         ref={(el) => (el ? trackKeyboardInset(el) : undefined)}
         className={cn(
-          "fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[85dvh] max-w-md overflow-y-auto rounded-t-3xl border-t border-border bg-surface p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl focus:outline-none",
+          // Móvil: bottom sheet. ≥md: modal centrado (max-w-560).
+          "fixed z-50 overflow-y-auto border-border bg-surface shadow-2xl focus:outline-none",
+          "inset-x-0 bottom-0 mx-auto max-h-[85dvh] max-w-md rounded-t-3xl border-t p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]",
+          "md:inset-x-auto md:bottom-auto md:left-1/2 md:top-1/2 md:max-h-[85vh] md:w-[560px] md:max-w-[calc(100vw-2rem)] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-3xl md:border md:p-6 md:pb-6",
           className,
         )}
       >
         <Dialog.Title className="sr-only">{title}</Dialog.Title>
-        <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-border" />
+        <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-border md:hidden" />
         {children}
       </Dialog.Content>
     </Dialog.Portal>
