@@ -97,3 +97,22 @@ body {
     animation: none;
   }
 }
+
+/* Columna candidata a recibir un drop entre buckets (desktop board). */
+@keyframes board-drop-pulse {
+  from {
+    background-color: color-mix(in srgb, var(--primary) 8%, transparent);
+  }
+  to {
+    background-color: color-mix(in srgb, var(--primary) 16%, transparent);
+  }
+}
+.board-drop {
+  animation: board-drop-pulse 0.7s ease-in-out infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .board-drop {
+    animation: none;
+    background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+  }
+}

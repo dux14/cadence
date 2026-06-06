@@ -52,7 +52,8 @@ export function DesktopBoard() {
         };
       });
       const over = resolveBucketAt(e.clientX, cols);
-      // Only highlight if hovering a column different from the drag origin.
+      // Highlight is ADVISORY only: the real drop target is decided by useDragReorder via elementFromPoint (authoritative).
+      // Benign divergence can occur in gaps between columns (highlight without drop, never wrong target).
       setDropBucket(over && over !== startBucket.current ? over : null);
     };
 
