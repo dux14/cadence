@@ -64,21 +64,28 @@ export function QuickAdd({
     // Allow creating with photos only (no title typed).
     if (!finalTitle && pending.length === 0) return;
     const titleToSave = finalTitle || "Photo";
-    const taskId = await addTask({
-      title: titleToSave,
-      links,
-      projectId,
-      bucket,
-      due,
-      dueHasTime,
-    });
-    if (pending.length > 0) {
-      const task = await db.tasks.get(taskId);
-      if (task) {
-        for (const img of pending) {
-          await addPhoto({ parentType: "task", parentGuid: task.guid, ...img });
+    try {
+      await db.transaction("rw", db.tasks, db.photos, async () => {
+        const taskId = await addTask({
+          title: titleToSave,
+          links,
+          projectId,
+          bucket,
+          due,
+          dueHasTime,
+        });
+        if (pending.length > 0) {
+          const task = await db.tasks.get(taskId);
+          if (task) {
+            for (const img of pending) {
+              await addPhoto({ parentType: "task", parentGuid: task.guid, ...img });
+            }
+          }
         }
-      }
+      });
+    } catch {
+      setPhotoError("No se pudo guardar la tarea. Inténtalo de nuevo.");
+      return;
     }
     setPending([]);
     setPhotoError(null);
