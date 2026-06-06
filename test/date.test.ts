@@ -59,6 +59,8 @@ describe("formatTime", () => {
   });
 });
 
+// formatHistoryDate / formatDayLabel are locale-dependent presentation —
+// these are smoke tests (output exists, varies by date), NOT format contracts.
 describe("formatHistoryDate", () => {
   it("returns a non-empty string for a valid key", () => {
     const result = formatHistoryDate("2026-06-03");

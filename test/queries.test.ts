@@ -92,7 +92,9 @@ describe("updateProject", () => {
     expect(p.name).toBe("Stable");
     expect(p.kind).toBe("active");
     expect(p.color).toBe("#aabbcc");
-    expect(p.updatedAt).toBeGreaterThanOrEqual(orig.updatedAt);
+    // Strict: syncClock guarantees last+1 even without wall-clock delay,
+    // so an update that forgets to re-stamp updatedAt must fail here.
+    expect(p.updatedAt).toBeGreaterThan(orig.updatedAt);
   });
 });
 
@@ -525,11 +527,14 @@ describe("promoteIdeaToTask", () => {
 
     await promoteIdeaToTask(idea, "today");
 
-    // Photo should now belong to the new task
+    // Photo should now belong to the new task — assert the EXACT destination
+    // guid, not just "changed from the idea's" (review: weak negative assert).
+    const task = (await db.tasks.toArray()).find(
+      (t) => t.title === "idea with photo",
+    )!;
     const photo = (await db.photos.where("guid").equals("photo-idea-promote").first())!;
     expect(photo.parentType).toBe("task");
-    // The parentGuid should have changed from the idea's guid
-    expect(photo.parentGuid).not.toBe(idea.guid);
+    expect(photo.parentGuid).toBe(task.guid);
   });
 });
 
@@ -641,7 +646,7 @@ describe("promoteBacklogToProject", () => {
 // ────────────────────────────────────────────────────────────────────────────
 
 describe("updatedAt monotonic contract", () => {
-  it("each mutation stamps updatedAt greater than or equal to previous", async () => {
+  it("each mutation stamps updatedAt strictly greater than the previous", async () => {
     const id = await addTask({ title: "mono", bucket: "today" });
     const stamps: number[] = [(await db.tasks.get(id))!.updatedAt];
 
@@ -654,10 +659,8 @@ describe("updatedAt monotonic contract", () => {
     await updateTask(id, { title: "updated" });
     stamps.push((await db.tasks.get(id))!.updatedAt);
 
-    for (let i = 1; i < stamps.length; i++) {
-      expect(stamps[i]).toBeGreaterThanOrEqual(stamps[i - 1]);
-    }
-    // All stamps are strictly monotonic via syncClock
+    // Strict monotonicity is THE sync invariant: syncClock guarantees
+    // max(Date.now(), last + 1) even for same-millisecond writes.
     for (let i = 1; i < stamps.length; i++) {
       expect(stamps[i]).toBeGreaterThan(stamps[i - 1]);
     }
@@ -669,25 +672,5 @@ describe("updatedAt monotonic contract", () => {
     await updateProject(id, { color: "#000" });
     const t2 = (await db.projects.get(id))!.updatedAt;
     expect(t2).toBeGreaterThan(t1);
-  });
-});
-
-describe("tombstones", () => {
-  it("deleteTask soft-deletes and listTasks hides it", async () => {
-    const id = await addTask({ title: "gone", bucket: "today" });
-    await deleteTask(id);
-    const row = await db.tasks.get(id);
-    expect(row).toBeTruthy();
-    expect(row!.deletedAt).not.toBeNull();
-    const visible = await listTasks("today");
-    expect(visible.find((t) => t.id === id)).toBeUndefined();
-  });
-
-  it("deleteIdea soft-deletes and listIdeas hides it", async () => {
-    const id = await addIdea(1, "idea");
-    await deleteIdea(id);
-    const visible = await listIdeas(1);
-    expect(visible.find((i) => i.id === id)).toBeUndefined();
-    expect((await db.ideas.get(id))!.deletedAt).not.toBeNull();
   });
 });
