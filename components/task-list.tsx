@@ -1,7 +1,7 @@
 "use client";
 
 import { GripVertical } from "lucide-react";
-import type { Project, Task } from "@/lib/types";
+import type { Bucket, Project, Task } from "@/lib/types";
 import { reorderTasks } from "@/lib/db/queries";
 import { useDragReorder } from "@/lib/use-drag-reorder";
 import { TaskRow } from "./task-row";
@@ -10,13 +10,19 @@ import { cn } from "@/lib/utils";
 export function TaskList({
   tasks,
   projects,
+  bucket,
+  onTransfer,
 }: {
   tasks: Task[];
   projects: Map<number, Project>;
+  /** Cuando se pasa, habilita drag horizontal entre columnas (board desktop). */
+  bucket?: Bucket;
+  onTransfer?: (id: number, toBucket: Bucket) => void;
 }) {
   const { order, draggingId, rowRef, handleProps } = useDragReorder(
     tasks,
     (ids) => void reorderTasks(ids),
+    bucket && onTransfer ? { bucket, onTransfer } : undefined,
   );
 
   return (
@@ -34,8 +40,10 @@ export function TaskList({
             task={t}
             project={t.projectId ? projects.get(t.projectId) : undefined}
             handle={
-              // Tasks with a timed due sort by time; only the rest drag.
-              t.dueHasTime ? undefined : (
+              // Board mode (onTransfer present): all rows drag so they can be
+              // transferred between columns; the due time is preserved on transfer.
+              // Mobile mode (no onTransfer): timed-due tasks don't drag (original behaviour).
+              onTransfer || !t.dueHasTime ? (
                 <button
                   aria-label="Drag to reorder"
                   className="grid h-9 w-7 shrink-0 cursor-grab touch-none place-items-center text-muted active:cursor-grabbing"
@@ -43,7 +51,7 @@ export function TaskList({
                 >
                   <GripVertical size={16} />
                 </button>
-              )
+              ) : undefined
             }
           />
         </li>
