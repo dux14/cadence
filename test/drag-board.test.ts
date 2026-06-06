@@ -7,6 +7,7 @@ import {
   moveByOffset,
   type ColumnRect,
 } from "@/lib/drag-board";
+import type { Bucket } from "@/lib/types";
 
 describe("resolveBucketAt", () => {
   const columns: ColumnRect[] = [
@@ -124,7 +125,9 @@ describe("adjacentBucket", () => {
   });
 
   it("returns null when current bucket is not present in buckets", () => {
-    expect(adjacentBucket("today", 1, ["tomorrow", "week"] as readonly string[] as readonly any[])).toBeNull();
+    // "today" is absent from this list, so adjacentBucket should return null
+    const subset = ["tomorrow", "week"] as unknown as readonly Bucket[];
+    expect(adjacentBucket("today", 1, subset)).toBeNull();
   });
 });
 

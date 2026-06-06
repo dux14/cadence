@@ -14,6 +14,8 @@ export function BoardColumn({
   projects,
   isDropTarget,
   onDragStateChange,
+  onAnnounce,
+  onRequestFocus,
 }: {
   bucket: Bucket;
   label: string;
@@ -21,6 +23,8 @@ export function BoardColumn({
   projects: Map<number, Project>;
   isDropTarget: boolean;
   onDragStateChange: (dropBucket: Bucket | null) => void;
+  onAnnounce?: (msg: string) => void;
+  onRequestFocus?: (id: number) => void;
 }) {
   // Count non-done tasks for the column header badge.
   const openCount = tasks.filter((t) => t.status !== "done").length;
@@ -66,6 +70,8 @@ export function BoardColumn({
             projects={projects}
             bucket={bucket}
             onTransfer={handleTransfer}
+            onAnnounce={onAnnounce}
+            onRequestFocus={onRequestFocus}
           />
         )}
       </div>

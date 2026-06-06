@@ -25,6 +25,37 @@ export function DesktopBoard() {
   // Track the column the drag started in so we don't highlight the origin.
   const startBucket = useRef<Bucket | null>(null);
 
+  // Aria-live announcement state: {text, tick} so identical messages repeat.
+  const [announcement, setAnnouncement] = useState<{ text: string; tick: number }>({
+    text: "",
+    tick: 0,
+  });
+
+  // Pending focus restoration after keyboard transfer.
+  const pendingFocusId = useRef<number | null>(null);
+
+  function announce(msg: string) {
+    setAnnouncement((prev) => ({ text: msg, tick: prev.tick + 1 }));
+  }
+
+  function requestFocus(id: number) {
+    pendingFocusId.current = id;
+  }
+
+  // Restore focus after useLiveQuery re-renders the task in its new column.
+  useEffect(() => {
+    const id = pendingFocusId.current;
+    if (id == null) return;
+    const el = document.querySelector<HTMLElement>(
+      `[data-drag-handle][data-task-id="${id}"]`,
+    );
+    if (el) {
+      el.focus();
+      pendingFocusId.current = null;
+    }
+    // If el not yet in DOM, the next tasks update will retry.
+  }, [tasks]);
+
   useEffect(() => {
     const el = boardRef.current;
     if (!el) return;
@@ -101,8 +132,19 @@ export function DesktopBoard() {
           projects={projectMap}
           isDropTarget={dropBucket === b.id}
           onDragStateChange={() => setDropBucket(null)}
+          onAnnounce={announce}
+          onRequestFocus={requestFocus}
         />
       ))}
+      {/* aria-live region for screen reader announcements */}
+      <div
+        aria-live="polite"
+        role="status"
+        className="sr-only"
+        key={announcement.tick}
+      >
+        {announcement.text}
+      </div>
     </div>
   );
 }
