@@ -19,9 +19,11 @@ import { cn } from "@/lib/utils";
 export function QuickAdd({
   defaultBucket = "today",
   defaultProjectId = null,
+  variant = "fab",
 }: {
   defaultBucket?: Bucket;
   defaultProjectId?: number | null;
+  variant?: "fab" | "inline";
 }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -94,13 +96,24 @@ export function QuickAdd({
 
   return (
     <>
-      <button
-        onClick={openSheet}
-        aria-label="Add task"
-        className="fixed bottom-24 right-[max(1rem,calc(50%-13rem))] z-30 grid h-14 w-14 place-items-center rounded-full bg-primary text-primary-ink shadow-lg shadow-primary/40 transition active:scale-95 md:bottom-8 md:right-[max(2rem,calc(50%-22.5rem))] xl:right-[calc(50%-30.5rem)]"
-      >
-        <Plus size={26} />
-      </button>
+      {variant === "fab" ? (
+        <button
+          onClick={openSheet}
+          aria-label="Add task"
+          className="fixed bottom-24 right-[max(1rem,calc(50%-13rem))] z-30 grid h-14 w-14 place-items-center rounded-full bg-primary text-primary-ink shadow-lg shadow-primary/40 transition active:scale-95 md:hidden"
+        >
+          <Plus size={26} />
+        </button>
+      ) : (
+        <button
+          onClick={openSheet}
+          aria-label="Add task"
+          className="flex w-full items-center gap-2 rounded-xl border border-dashed border-border px-3 py-2 text-[13px] text-muted transition hover:border-primary hover:text-foreground"
+        >
+          <Plus size={16} />
+          Add task
+        </button>
+      )}
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent title="Add a task">
