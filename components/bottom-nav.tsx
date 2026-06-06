@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarCheck, History, LayoutGrid, Settings, Sparkles } from "lucide-react";
 import { Logo } from "./logo";
+import { SyncStatus } from "./sync-status";
 import { ThemeToggle } from "./theme-toggle";
 import { cn } from "@/lib/utils";
 
@@ -46,8 +47,9 @@ export function BottomNav() {
           );
         })}
       </div>
-      <div className="mt-auto hidden px-1 md:flex md:justify-center lg:justify-start lg:px-2">
+      <div className="mt-auto hidden items-center gap-3 px-1 md:flex md:justify-center lg:justify-start lg:px-2">
         <ThemeToggle />
+        <SyncStatus />
       </div>
     </nav>
   );

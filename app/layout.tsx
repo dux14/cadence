@@ -2,8 +2,10 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
+import { AuthGate } from "@/components/auth-gate";
 import { BottomNav } from "@/components/bottom-nav";
 import { SwRegister } from "@/components/sw-register";
+import { SyncBoot } from "@/components/sync-boot";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -63,13 +65,16 @@ export default function RootLayout({
       <body className="min-h-full antialiased">
         <SwRegister />
         <AppShell>
-          {/* h-dvh + scrolling <main>: lists scroll under the fixed nav. */}
-          <div className="mx-auto flex h-dvh max-w-md flex-col md:max-w-3xl md:flex-row xl:max-w-5xl">
-            <BottomNav />
-            <main className="order-first min-w-0 flex-1 overflow-y-auto overscroll-contain md:order-none">
-              {children}
-            </main>
-          </div>
+          <AuthGate>
+            <SyncBoot />
+            {/* h-dvh + scrolling <main>: lists scroll under the fixed nav. */}
+            <div className="mx-auto flex h-dvh max-w-md flex-col md:max-w-3xl md:flex-row xl:max-w-5xl">
+              <BottomNav />
+              <main className="order-first min-w-0 flex-1 overflow-y-auto overscroll-contain md:order-none">
+                {children}
+              </main>
+            </div>
+          </AuthGate>
         </AppShell>
       </body>
     </html>
