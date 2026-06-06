@@ -50,7 +50,7 @@ export function DesktopBoard() {
   useEffect(() => {
     const id = pendingFocusId.current;
     if (id == null) return;
-    const el = document.querySelector<HTMLElement>(
+    const el = boardRef.current?.querySelector<HTMLElement>(
       `[data-drag-handle][data-task-id="${id}"]`,
     );
     if (el) {
