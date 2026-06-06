@@ -14,6 +14,8 @@ export const MAX_SIDE = 1600;
 export const THUMB_SIDE = 200;
 export const QUALITY = 0.8;
 
+// Platform floor: WebP canvas encoding requires Safari/iOS >= 14 (Chrome/Firefox: any modern version). Older browsers get a descriptive error instead of a silently-oversized PNG.
+
 /**
  * Pure resize math: scale (w,h) so the longer side is at most `max`,
  * preserving aspect ratio. Never upscales. Rounds to whole pixels.
@@ -41,7 +43,11 @@ async function renderWebp(
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2d context unavailable");
     ctx.drawImage(bitmap, 0, 0, dims.width, dims.height);
-    return canvas.convertToBlob({ type: "image/webp", quality });
+    const blob = await canvas.convertToBlob({ type: "image/webp", quality });
+    if (blob.type !== "image/webp") {
+      throw new Error("WebP encoding unsupported on this browser");
+    }
+    return blob;
   }
   const canvas = document.createElement("canvas");
   canvas.width = dims.width;
@@ -51,7 +57,17 @@ async function renderWebp(
   ctx.drawImage(bitmap, 0, 0, dims.width, dims.height);
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))),
+      (b) => {
+        if (!b) {
+          reject(new Error("toBlob returned null"));
+          return;
+        }
+        if (b.type !== "image/webp") {
+          reject(new Error("WebP encoding unsupported on this browser"));
+          return;
+        }
+        resolve(b);
+      },
       "image/webp",
       quality,
     );
@@ -64,7 +80,7 @@ async function renderWebp(
  * Impure: depends on createImageBitmap. Verify manually (see plan Task 9).
  */
 export async function compressImage(file: Blob): Promise<CompressedImage> {
-  const bitmap = await createImageBitmap(file);
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   try {
     const full = fitDimensions(bitmap.width, bitmap.height, MAX_SIDE);
     const thumbDims = fitDimensions(bitmap.width, bitmap.height, THUMB_SIDE);
