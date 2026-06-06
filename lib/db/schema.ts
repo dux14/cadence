@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { BacklogItem, Idea, Project, Task } from "@/lib/types";
+import type { BacklogItem, Idea, Photo, Project, Task } from "@/lib/types";
 import {
   migrateBacklogV1,
   migrateIdeaV1,
@@ -17,6 +17,7 @@ export class CadenceDB extends Dexie {
   tasks!: Table<Task, number>;
   ideas!: Table<Idea, number>;
   backlog!: Table<BacklogItem, number>;
+  photos!: Table<Photo, number>;
   meta!: Table<Meta, string>;
 
   constructor() {
@@ -69,6 +70,10 @@ export class CadenceDB extends Dexie {
             Object.assign(b, migrateBacklogV1({ ...b }));
           });
       });
+
+    this.version(3).stores({
+      photos: "++id, &guid, parentGuid, updatedAt",
+    });
   }
 }
 

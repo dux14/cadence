@@ -92,3 +92,20 @@ export const BUCKETS: { id: Bucket; label: string }[] = [
   { id: "tomorrow", label: "Tomorrow" },
   { id: "week", label: "This Week" },
 ];
+
+export type PhotoParentType = "task" | "idea" | "backlog";
+
+export interface Photo {
+  id?: number;
+  guid: string;
+  parentType: PhotoParentType;
+  parentGuid: string;
+  blob: Blob; // WebP, lado mayor <=1600px, q~0.8
+  thumb: Blob; // WebP, lado mayor ~200px
+  width: number; // del blob principal
+  height: number;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number | null;
+  remoteUrl?: string | null; // null hasta SP4
+}
