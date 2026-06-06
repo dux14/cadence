@@ -10,6 +10,7 @@ import { Segmented } from "@/components/segmented";
 import { TaskList } from "@/components/task-list";
 import { QuickAdd } from "@/components/quick-add";
 import { Empty } from "@/components/empty";
+import { DesktopBoard } from "@/components/desktop-board";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { formatDayLabel } from "@/lib/date";
 import type { Bucket, Project } from "@/lib/types";
@@ -56,7 +57,14 @@ export default function TodayPage() {
     );
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 pt-5 pb-28 md:pb-10">
+    <>
+      {/* Desktop: 3-column board, hidden on mobile */}
+      <div className="hidden h-full md:block">
+        <DesktopBoard />
+      </div>
+
+      {/* Mobile: single-bucket list, hidden on md+ */}
+      <div className="mx-auto w-full max-w-2xl px-4 pt-5 pb-28 md:hidden">
       <header className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <Logo size={30} className="md:hidden" />
@@ -97,5 +105,6 @@ export default function TodayPage() {
 
       <QuickAdd defaultBucket={bucket} />
     </div>
+    </>
   );
 }

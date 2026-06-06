@@ -45,7 +45,12 @@ export function TaskList({
               // Mobile mode (no onTransfer): timed-due tasks don't drag (original behaviour).
               onTransfer || !t.dueHasTime ? (
                 <button
-                  aria-label="Drag to reorder"
+                  data-drag-handle
+                  aria-label={
+                    onTransfer
+                      ? "Drag to reorder or move bucket"
+                      : "Drag to reorder"
+                  }
                   className="grid h-9 w-7 shrink-0 cursor-grab touch-none place-items-center text-muted active:cursor-grabbing"
                   {...handleProps(t.id!)}
                 >
