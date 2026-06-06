@@ -20,7 +20,7 @@ export function PhotoViewer({
 }) {
   const blobs = useMemo(() => photos.map((p) => p.blob), [photos]);
   const urls = useObjectUrls(blobs);
-  const touchX = useRef<number | null>(null);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
 
   const count = photos.length;
   const go = (delta: number) => {
@@ -30,8 +30,13 @@ export function PhotoViewer({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "ArrowLeft") go(-1);
-      else if (e.key === "ArrowRight") go(1);
+      if (e.key === "ArrowLeft") {
+        e.stopPropagation();
+        go(-1);
+      } else if (e.key === "ArrowRight") {
+        e.stopPropagation();
+        go(1);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -40,8 +45,10 @@ export function PhotoViewer({
 
   async function remove() {
     const current = photos[index];
+    if (!current) return; // stale index guard (rapid double-tap)
+    const wasLast = count <= 1;
     await tombstonePhoto(current.id!);
-    if (count <= 1) {
+    if (wasLast) {
       onClose();
       return;
     }
@@ -55,12 +62,18 @@ export function PhotoViewer({
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/90" />
         <Dialog.Content
           className="fixed inset-0 z-[70] flex flex-col focus:outline-none"
-          onTouchStart={(e) => (touchX.current = e.touches[0].clientX)}
+          onTouchStart={(e) =>
+            (touchStart.current = {
+              x: e.touches[0].clientX,
+              y: e.touches[0].clientY,
+            })
+          }
           onTouchEnd={(e) => {
-            if (touchX.current === null) return;
-            const dx = e.changedTouches[0].clientX - touchX.current;
-            if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1);
-            touchX.current = null;
+            if (touchStart.current === null) return;
+            const dx = e.changedTouches[0].clientX - touchStart.current.x;
+            const dy = e.changedTouches[0].clientY - touchStart.current.y;
+            if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1);
+            touchStart.current = null;
           }}
         >
           <Dialog.Title className="sr-only">Photo viewer</Dialog.Title>
