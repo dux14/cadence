@@ -1,3 +1,4 @@
+import { syncClock } from "@/lib/db/clock";
 import { db, getMeta, setMeta } from "@/lib/db/schema";
 import { localDateKey } from "@/lib/date";
 
@@ -18,7 +19,7 @@ export async function runRollover(): Promise<boolean> {
   if (last === today) return false;
 
   await db.transaction("rw", db.tasks, db.meta, async () => {
-    const now = Date.now();
+    const now = syncClock();
 
     const todayTasks = await db.tasks
       .where("bucket")
