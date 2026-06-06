@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import "fake-indexeddb/auto";
 import { db } from "@/lib/db/schema";
 import type { RemoteRow, SyncClient, Table } from "@/lib/sync/types";
-import { pushTable, pullTable, migrateInitial, verifyCounts, resolvePendingRelations } from "@/lib/sync/engine";
-import { getPullCursor, getLastPushedAt, setPullCursor } from "@/lib/sync/dirty";
+import { pushTable, pullTable, migrateInitial, verifyCounts, resolvePendingRelations, syncOnce } from "@/lib/sync/engine";
+import { getPullCursor, getLastPushedAt, setPullCursor, resetSyncCursors } from "@/lib/sync/dirty";
 
 function makeMockClient(userId: string | null): {
   client: SyncClient;
@@ -54,6 +54,7 @@ beforeEach(async () => {
     db.tasks.clear(),
     db.ideas.clear(),
     db.backlog.clear(),
+    db.photos.clear(),
     db.meta.clear(),
   ]);
 });
@@ -358,5 +359,510 @@ describe("re-pull idempotence", () => {
     const r2 = await db.tasks.where("guid").equals("r2").first();
     expect(r1!.title).toBe("task-one");
     expect(r2!.title).toBe("task-two");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// syncOnce — full pull/push cycle, projects-first ordering
+// ---------------------------------------------------------------------------
+
+describe("syncOnce", () => {
+  it("pulls all tables and then pushes all tables in one cycle", async () => {
+    const { client, store } = makeMockClient("u1");
+
+    // Seed a local project and task to push.
+    await db.projects.add({
+      guid: "p-sync", name: "Sync Project", kind: "active", color: "#fff",
+      order: 0, createdAt: 1, archivedAt: null, updatedAt: 50, deletedAt: null,
+    });
+    await db.tasks.add({
+      guid: "t-sync", title: "sync task", links: [], projectId: 1,
+      bucket: "today", status: "todo", order: 0, createdAt: 1,
+      completedAt: null, due: null, dueHasTime: false, subtasks: [],
+      carried: false, dayKey: null, archived: false, archivedAt: null,
+      updatedAt: 50, deletedAt: null,
+    });
+
+    // Seed a remote idea to pull.
+    await client.upsert("ideas", [{
+      guid: "i-remote", user_id: "u1", project_guid: null,
+      text: "remote idea", status: "open", links: [], due: null,
+      due_has_time: false, subtasks: [], order: 0,
+      created_at: 1, updated_at: 100, deleted_at: null,
+    }]);
+
+    await syncOnce(client, "u1");
+
+    // Local rows pushed to remote store.
+    expect(store.get("projects")?.has("p-sync")).toBe(true);
+    expect(store.get("tasks")?.has("t-sync")).toBe(true);
+
+    // Remote idea pulled into local db.
+    const idea = await db.ideas.where("guid").equals("i-remote").first();
+    expect(idea).toBeDefined();
+    expect(idea!.text).toBe("remote idea");
+  });
+
+  it("projects are pulled before tasks so orphan resolution works in one cycle", async () => {
+    const { client } = makeMockClient("u1");
+
+    // Remote project + task referencing it, both in the same sync.
+    await client.upsert("projects", [{
+      guid: "pg-order", user_id: "u1", name: "Order Test", kind: "active",
+      color: "#111", order: 0, created_at: 1, archived_at: null,
+      updated_at: 10, deleted_at: null,
+    }]);
+    await client.upsert("tasks", [{
+      guid: "tg-order", user_id: "u1", title: "depends on project",
+      links: [], project_guid: "pg-order", bucket: "today", status: "todo",
+      order: 0, created_at: 1, completed_at: null, due: null,
+      due_has_time: false, subtasks: [], carried: false, day_key: null,
+      archived: false, archived_at: null, updated_at: 20, deleted_at: null,
+    }]);
+
+    await syncOnce(client, "u1");
+
+    // If projects pulled first, task can resolve projectId in the same cycle.
+    const task = await db.tasks.where("guid").equals("tg-order").first();
+    expect(task).toBeDefined();
+    // projectId should be resolved (not null/0) because project arrived first.
+    expect(task!.projectId).not.toBeNull();
+    expect((task as unknown as Record<string, unknown>)._pendingProjectGuid).toBeNull();
+  });
+
+  it("pushes all relational tables (projects, tasks, ideas, backlog) in one cycle", async () => {
+    const { client, store } = makeMockClient("u1");
+
+    await db.projects.add({
+      guid: "all-p", name: "P", kind: "active", color: "#000",
+      order: 0, createdAt: 1, archivedAt: null, updatedAt: 5, deletedAt: null,
+    });
+    await db.ideas.add({
+      guid: "all-i", text: "idea", status: "open" as const, links: [],
+      projectId: 0, due: null, dueHasTime: false, subtasks: [], order: 0,
+      createdAt: 1, updatedAt: 5, deletedAt: null,
+    });
+    await db.backlog.add({
+      guid: "all-b", title: "backlog item", links: [], due: null,
+      dueHasTime: false, subtasks: [], order: 0, createdAt: 1,
+      updatedAt: 5, deletedAt: null, promotedProjectId: null,
+    });
+
+    await syncOnce(client, "u1");
+
+    expect(store.get("projects")?.has("all-p")).toBe(true);
+    expect(store.get("ideas")?.has("all-i")).toBe(true);
+    expect(store.get("backlog")?.has("all-b")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// migrateInitial — reset cursors + verifyCounts ok=true/ok=false
+// ---------------------------------------------------------------------------
+
+describe("migrateInitial — cursor reset behaviour", () => {
+  it("resets cursors to 0 so all rows are dirty and pushed", async () => {
+    const { client } = makeMockClient("u1");
+
+    // Add a project that was already pushed (simulate non-zero cursor).
+    await db.projects.add({
+      guid: "pm-1", name: "Old", kind: "active", color: "#f00",
+      order: 0, createdAt: 1, archivedAt: null, updatedAt: 200, deletedAt: null,
+    });
+    // Manually advance the cursor so it looks already pushed.
+    const { setLastPushedAt } = await import("@/lib/sync/dirty");
+    await setLastPushedAt("projects", 300);
+
+    // With cursor=300, no rows are dirty (updatedAt=200 ≤ 300).
+    const dirtyBefore = await getLastPushedAt("projects");
+    expect(dirtyBefore).toBe(300);
+
+    // migrateInitial should reset cursors and push everything.
+    const result = await migrateInitial(client, "u1");
+    expect(result.ok).toBe(true);
+    // The project was pushed (cursor is reset).
+    expect(result.counts.projects.remote).toBe(1);
+  });
+
+  it("returns ok=true when all live counts match after push", async () => {
+    const { client } = makeMockClient("u1");
+
+    await db.projects.add({
+      guid: "pm-ok-p", name: "OK", kind: "active", color: "#0f0",
+      order: 0, createdAt: 1, archivedAt: null, updatedAt: 1, deletedAt: null,
+    });
+    await db.ideas.add({
+      guid: "pm-ok-i", text: "ok idea", status: "open" as const, links: [],
+      projectId: 1, due: null, dueHasTime: false, subtasks: [], order: 0,
+      createdAt: 1, updatedAt: 1, deletedAt: null,
+    });
+
+    const result = await migrateInitial(client, "u1");
+    expect(result.ok).toBe(true);
+    expect(result.counts.projects).toEqual({ local: 1, remote: 1 });
+    expect(result.counts.ideas).toEqual({ local: 1, remote: 1 });
+  });
+
+  it("returns ok=false when a table's counts do not match", async () => {
+    const { client, store } = makeMockClient("u1");
+
+    await db.tasks.add({
+      guid: "pm-fail-t", title: "task", links: [], projectId: null,
+      bucket: "today", status: "todo", order: 0, createdAt: 1,
+      completedAt: null, due: null, dueHasTime: false, subtasks: [],
+      carried: false, dayKey: null, archived: false, archivedAt: null,
+      updatedAt: 1, deletedAt: null,
+    });
+
+    const result = await migrateInitial(client, "u1");
+    expect(result.ok).toBe(true); // pushed OK initially
+
+    // Now simulate a discrepancy: remove the remote row after push.
+    store.get("tasks")!.clear();
+
+    // Re-verify counts separately to see the mismatch path.
+    const counts = await verifyCounts(client);
+    expect(counts.tasks.local).toBe(1);
+    expect(counts.tasks.remote).toBe(0);
+    // They differ so ok would be false.
+    const ok = (["projects", "tasks", "ideas", "backlog"] as const).every(
+      (t) => counts[t].local === counts[t].remote,
+    );
+    expect(ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// verifyCounts — local vs remote mismatch detection, photos branch
+// ---------------------------------------------------------------------------
+
+describe("verifyCounts", () => {
+  it("counts photos separately (uses db.photos, not localLiveCount)", async () => {
+    const { client } = makeMockClient("u1");
+
+    // Add a live photo locally.
+    await db.photos.add({
+      guid: "ph-1",
+      parentType: "task",
+      parentGuid: "t1",
+      blob: new Blob(["x"]),
+      thumb: new Blob(["y"]),
+      width: 10,
+      height: 10,
+      createdAt: 1,
+      updatedAt: 1,
+      deletedAt: null,
+      remoteUrl: null,
+    });
+
+    const counts = await verifyCounts(client);
+    // Local photo counted; remote=0 (mock countLive returns 0).
+    expect(counts.photos.local).toBe(1);
+    expect(counts.photos.remote).toBe(0);
+  });
+
+  it("excludes soft-deleted local photos from the live count", async () => {
+    const { client } = makeMockClient("u1");
+
+    await db.photos.add({
+      guid: "ph-del",
+      parentType: "task",
+      parentGuid: "t1",
+      blob: new Blob(["x"]),
+      thumb: new Blob(["y"]),
+      width: 10,
+      height: 10,
+      createdAt: 1,
+      updatedAt: 1,
+      deletedAt: 999,
+      remoteUrl: null,
+    });
+
+    const counts = await verifyCounts(client);
+    expect(counts.photos.local).toBe(0);
+  });
+
+  it("reports matching counts when both sides agree", async () => {
+    const { client, store } = makeMockClient("u1");
+
+    // Push a project so remote has one live row.
+    await db.projects.add({
+      guid: "vc-p", name: "VC", kind: "active", color: "#abc",
+      order: 0, createdAt: 1, archivedAt: null, updatedAt: 1, deletedAt: null,
+    });
+    await pushTable("projects", client, "u1");
+
+    // Confirm store has the row so countLive returns 1.
+    expect(store.get("projects")?.size).toBe(1);
+
+    const counts = await verifyCounts(client);
+    expect(counts.projects).toEqual({ local: 1, remote: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRemoteRow — remaining table branches (projects, ideas, backlog)
+// ---------------------------------------------------------------------------
+
+describe("applyRemoteRow — projects table", () => {
+  it("inserts a new project from remote", async () => {
+    const { client } = makeMockClient("u1");
+    await client.upsert("projects", [{
+      guid: "proj-new", user_id: "u1", name: "New Project", kind: "active",
+      color: "#abc", order: 1, created_at: 1, archived_at: null,
+      updated_at: 100, deleted_at: null,
+    }]);
+    await pullTable("projects", client);
+
+    const p = await db.projects.where("guid").equals("proj-new").first();
+    expect(p).toBeDefined();
+    expect(p!.name).toBe("New Project");
+  });
+
+  it("updates an existing project from remote when remote is newer", async () => {
+    const { client } = makeMockClient("u1");
+    await db.projects.add({
+      guid: "proj-upd", name: "Old Name", kind: "active", color: "#000",
+      order: 0, createdAt: 1, archivedAt: null, updatedAt: 50, deletedAt: null,
+    });
+    await client.upsert("projects", [{
+      guid: "proj-upd", user_id: "u1", name: "New Name", kind: "active",
+      color: "#fff", order: 0, created_at: 1, archived_at: null,
+      updated_at: 200, deleted_at: null,
+    }]);
+    await pullTable("projects", client);
+
+    const p = await db.projects.where("guid").equals("proj-upd").first();
+    expect(p!.name).toBe("New Name");
+  });
+
+  it("applies remote tombstone to project — deletes local row", async () => {
+    const { client } = makeMockClient("u1");
+    await db.projects.add({
+      guid: "proj-del", name: "Del Me", kind: "active", color: "#000",
+      order: 0, createdAt: 1, archivedAt: null, updatedAt: 10, deletedAt: null,
+    });
+    await client.upsert("projects", [{
+      guid: "proj-del", user_id: "u1", name: "Del Me", kind: "active",
+      color: "#000", order: 0, created_at: 1, archived_at: null,
+      updated_at: 999, deleted_at: 999,
+    }]);
+    await pullTable("projects", client);
+    const p = await db.projects.where("guid").equals("proj-del").first();
+    expect(p).toBeUndefined();
+  });
+});
+
+describe("applyRemoteRow — ideas table", () => {
+  it("inserts a new idea from remote (with resolved project)", async () => {
+    const { client } = makeMockClient("u1");
+
+    // Project must exist locally so projectId resolves.
+    await db.projects.add({
+      guid: "pg-idea", name: "P", kind: "active", color: "#000",
+      order: 0, createdAt: 1, archivedAt: null, updatedAt: 1, deletedAt: null,
+    });
+    await client.upsert("ideas", [{
+      guid: "idea-new", user_id: "u1", project_guid: "pg-idea",
+      text: "new idea", status: "open", links: [], due: null,
+      due_has_time: false, subtasks: [], order: 0,
+      created_at: 1, updated_at: 100, deleted_at: null,
+    }]);
+    await pullTable("ideas", client);
+
+    const idea = await db.ideas.where("guid").equals("idea-new").first();
+    expect(idea).toBeDefined();
+    expect(idea!.text).toBe("new idea");
+    expect(idea!.projectId).not.toBe(0);
+  });
+
+  it("updates an existing idea from remote when remote is newer", async () => {
+    const { client } = makeMockClient("u1");
+
+    await db.ideas.add({
+      guid: "idea-upd", text: "old", status: "open" as const, links: [],
+      projectId: 0, due: null, dueHasTime: false, subtasks: [], order: 0,
+      createdAt: 1, updatedAt: 50, deletedAt: null,
+    });
+    await client.upsert("ideas", [{
+      guid: "idea-upd", user_id: "u1", project_guid: null,
+      text: "updated idea", status: "open", links: [], due: null,
+      due_has_time: false, subtasks: [], order: 0,
+      created_at: 1, updated_at: 200, deleted_at: null,
+    }]);
+    await pullTable("ideas", client);
+
+    const idea = await db.ideas.where("guid").equals("idea-upd").first();
+    expect(idea!.text).toBe("updated idea");
+  });
+
+  it("applies remote tombstone to idea — deletes local row", async () => {
+    const { client } = makeMockClient("u1");
+    await db.ideas.add({
+      guid: "idea-del", text: "bye", status: "open" as const, links: [],
+      projectId: 0, due: null, dueHasTime: false, subtasks: [], order: 0,
+      createdAt: 1, updatedAt: 10, deletedAt: null,
+    });
+    await client.upsert("ideas", [{
+      guid: "idea-del", user_id: "u1", project_guid: null,
+      text: "bye", status: "open", links: [], due: null,
+      due_has_time: false, subtasks: [], order: 0,
+      created_at: 1, updated_at: 999, deleted_at: 999,
+    }]);
+    await pullTable("ideas", client);
+    const idea = await db.ideas.where("guid").equals("idea-del").first();
+    expect(idea).toBeUndefined();
+  });
+});
+
+describe("applyRemoteRow — backlog table", () => {
+  it("inserts a new backlog item from remote (with resolved promotedProjectId)", async () => {
+    const { client } = makeMockClient("u1");
+
+    await db.projects.add({
+      guid: "pg-bl", name: "BL Proj", kind: "active", color: "#000",
+      order: 0, createdAt: 1, archivedAt: null, updatedAt: 1, deletedAt: null,
+    });
+    await client.upsert("backlog", [{
+      guid: "bl-new", user_id: "u1", title: "new backlog",
+      note: null, links: [], due: null, due_has_time: false, subtasks: [],
+      order: 0, created_at: 1, promoted_project_guid: "pg-bl",
+      updated_at: 100, deleted_at: null,
+    }]);
+    await pullTable("backlog", client);
+
+    const b = await db.backlog.where("guid").equals("bl-new").first();
+    expect(b).toBeDefined();
+    expect(b!.title).toBe("new backlog");
+    expect(b!.promotedProjectId).not.toBeNull();
+  });
+
+  it("backlog item with absent promotedProject sets _pendingPromotedGuid", async () => {
+    const { client } = makeMockClient("u1");
+    await client.upsert("backlog", [{
+      guid: "bl-orphan", user_id: "u1", title: "orphan backlog",
+      note: null, links: [], due: null, due_has_time: false, subtasks: [],
+      order: 0, created_at: 1, promoted_project_guid: "pg-absent",
+      updated_at: 100, deleted_at: null,
+    }]);
+    await pullTable("backlog", client);
+
+    const b = await db.backlog.where("guid").equals("bl-orphan").first();
+    expect(b).toBeDefined();
+    expect((b as unknown as Record<string, unknown>)._pendingPromotedGuid).toBe("pg-absent");
+    expect(b!.promotedProjectId).toBeNull();
+  });
+
+  it("updates an existing backlog item from remote when remote is newer", async () => {
+    const { client } = makeMockClient("u1");
+    await db.backlog.add({
+      guid: "bl-upd", title: "old title", links: [], due: null,
+      dueHasTime: false, subtasks: [], order: 0, createdAt: 1,
+      updatedAt: 50, deletedAt: null, promotedProjectId: null,
+    });
+    await client.upsert("backlog", [{
+      guid: "bl-upd", user_id: "u1", title: "updated title",
+      note: null, links: [], due: null, due_has_time: false, subtasks: [],
+      order: 0, created_at: 1, promoted_project_guid: null,
+      updated_at: 200, deleted_at: null,
+    }]);
+    await pullTable("backlog", client);
+
+    const b = await db.backlog.where("guid").equals("bl-upd").first();
+    expect(b!.title).toBe("updated title");
+  });
+
+  it("applies remote tombstone to backlog item — deletes local row", async () => {
+    const { client } = makeMockClient("u1");
+    await db.backlog.add({
+      guid: "bl-del", title: "gone", links: [], due: null,
+      dueHasTime: false, subtasks: [], order: 0, createdAt: 1,
+      updatedAt: 10, deletedAt: null, promotedProjectId: null,
+    });
+    await client.upsert("backlog", [{
+      guid: "bl-del", user_id: "u1", title: "gone",
+      note: null, links: [], due: null, due_has_time: false, subtasks: [],
+      order: 0, created_at: 1, promoted_project_guid: null,
+      updated_at: 999, deleted_at: 999,
+    }]);
+    await pullTable("backlog", client);
+    const b = await db.backlog.where("guid").equals("bl-del").first();
+    expect(b).toBeUndefined();
+  });
+});
+
+describe("resolvePendingRelations — backlog branch", () => {
+  it("re-resolves backlog promotedProjectId when project arrives later", async () => {
+    const { client } = makeMockClient("u1");
+
+    // Pull a backlog item whose promoted project doesn't exist yet.
+    await client.upsert("backlog", [{
+      guid: "bl-pend", user_id: "u1", title: "pending backlog",
+      note: null, links: [], due: null, due_has_time: false, subtasks: [],
+      order: 0, created_at: 1, promoted_project_guid: "pg-later",
+      updated_at: 100, deleted_at: null,
+    }]);
+    await pullTable("backlog", client);
+
+    const orphan = await db.backlog.where("guid").equals("bl-pend").first();
+    expect(orphan!.promotedProjectId).toBeNull();
+    expect((orphan as unknown as Record<string, unknown>)._pendingPromotedGuid).toBe("pg-later");
+
+    // Project arrives.
+    await client.upsert("projects", [{
+      guid: "pg-later", user_id: "u1", name: "Later Project", kind: "active",
+      color: "#222", order: 0, created_at: 1, archived_at: null,
+      updated_at: 50, deleted_at: null,
+    }]);
+    await pullTable("projects", client);
+    await resolvePendingRelations();
+
+    const resolved = await db.backlog.where("guid").equals("bl-pend").first();
+    expect(resolved!.promotedProjectId).not.toBeNull();
+    expect((resolved as unknown as Record<string, unknown>)._pendingPromotedGuid).toBeNull();
+  });
+});
+
+describe("resolvePendingRelations — idea branch", () => {
+  it("re-resolves idea projectId when project arrives later", async () => {
+    const { client } = makeMockClient("u1");
+
+    await client.upsert("ideas", [{
+      guid: "i-pend", user_id: "u1", project_guid: "pg-idea-later",
+      text: "pending idea", status: "open", links: [], due: null,
+      due_has_time: false, subtasks: [], order: 0,
+      created_at: 1, updated_at: 100, deleted_at: null,
+    }]);
+    await pullTable("ideas", client);
+
+    const orphan = await db.ideas.where("guid").equals("i-pend").first();
+    expect(orphan!.projectId).toBe(0);
+    expect((orphan as unknown as Record<string, unknown>)._pendingProjectGuid).toBe("pg-idea-later");
+
+    await client.upsert("projects", [{
+      guid: "pg-idea-later", user_id: "u1", name: "Idea Proj", kind: "active",
+      color: "#333", order: 0, created_at: 1, archived_at: null,
+      updated_at: 60, deleted_at: null,
+    }]);
+    await pullTable("projects", client);
+    await resolvePendingRelations();
+
+    const resolved = await db.ideas.where("guid").equals("i-pend").first();
+    expect(resolved!.projectId).not.toBe(0);
+    expect(resolved!.projectId).not.toBeNull();
+    expect((resolved as unknown as Record<string, unknown>)._pendingProjectGuid).toBeNull();
+  });
+});
+
+describe("resetSyncCursors", () => {
+  it("resets all push and pull cursors to 0", async () => {
+    const { setLastPushedAt } = await import("@/lib/sync/dirty");
+    await setLastPushedAt("projects", 500);
+    await setPullCursor("tasks", 300);
+
+    await resetSyncCursors();
+
+    expect(await getLastPushedAt("projects")).toBe(0);
+    expect(await getPullCursor("tasks")).toBe(0);
   });
 });

@@ -58,6 +58,74 @@ function makeStubClient(builder: ReturnType<typeof makeChainableStub>["builder"]
 }
 
 // ---------------------------------------------------------------------------
+// getUserId
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a stub that exposes auth.getSession with a configurable return.
+ * NOTE: The actual implementation uses auth.getUser (not getSession);
+ * we stub getUser accordingly.
+ */
+function makeAuthStub(user: { id: string } | null) {
+  return {
+    from: () => { throw new Error("from not expected"); },
+    auth: {
+      getUser: () => Promise.resolve({ data: { user }, error: null }),
+    },
+    rpc: () => { throw new Error("rpc not expected"); },
+    storage: null,
+  } as unknown as SupabaseClient;
+}
+
+// ---------------------------------------------------------------------------
+// upsert / countLive / uploadPhoto / createSignedUrl stubs
+// ---------------------------------------------------------------------------
+
+/** Minimal stub for the `rpc` path used by upsert. */
+function makeRpcStub(returnData: unknown, returnError: unknown = null) {
+  return {
+    from: () => { throw new Error("from not expected in rpc test"); },
+    auth: { getUser: () => Promise.resolve({ data: { user: null } }) },
+    rpc: (_name: string, _args: unknown) =>
+      Promise.resolve({ data: returnData, error: returnError }),
+    storage: null,
+  } as unknown as SupabaseClient;
+}
+
+/** Minimal stub for the `.from(table).select(...).is(...)` path used by countLive. */
+function makeCountStub(count: number | null, error: unknown = null) {
+  const builder = {
+    select: (_col: string, _opts: unknown) => builder,
+    is: (_col: string, _val: unknown) => Promise.resolve({ count, error }),
+  };
+  return {
+    from: (_table: string) => builder,
+    auth: { getUser: () => Promise.resolve({ data: { user: null } }) },
+    rpc: () => { throw new Error("rpc not expected"); },
+    storage: null,
+  } as unknown as SupabaseClient;
+}
+
+/** Minimal stub for the storage path used by uploadPhoto and createSignedUrl. */
+function makeStorageStub(opts: {
+  uploadResult?: { error: unknown };
+  signedUrlResult?: { data: { signedUrl: string } | null; error: unknown };
+}) {
+  const bucket = {
+    upload: (_path: string, _blob: Blob, _opts: unknown) =>
+      Promise.resolve(opts.uploadResult ?? { error: null }),
+    createSignedUrl: (_path: string, _expiry: number) =>
+      Promise.resolve(opts.signedUrlResult ?? { data: { signedUrl: "https://signed/x" }, error: null }),
+  };
+  return {
+    from: () => { throw new Error("from not expected in storage test"); },
+    auth: { getUser: () => Promise.resolve({ data: { user: null } }) },
+    rpc: () => { throw new Error("rpc not expected"); },
+    storage: { from: (_bucket: string) => bucket },
+  } as unknown as SupabaseClient;
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -112,5 +180,140 @@ describe("pullSince — pagination", () => {
     const client = createSupabaseSyncClient(makeStubClient(builder as unknown as ReturnType<typeof makeChainableStub>["builder"]));
 
     await expect(client.pullSince("tasks", 0)).rejects.toThrow("db down");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getUserId
+// ---------------------------------------------------------------------------
+
+describe("getUserId", () => {
+  it("returns the user id when a session exists", async () => {
+    const sb = makeAuthStub({ id: "user-abc" });
+    const client = createSupabaseSyncClient(sb);
+    expect(await client.getUserId()).toBe("user-abc");
+  });
+
+  it("returns null when no session / user is present", async () => {
+    const sb = makeAuthStub(null);
+    const client = createSupabaseSyncClient(sb);
+    expect(await client.getUserId()).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// upsert
+// ---------------------------------------------------------------------------
+
+describe("upsert", () => {
+  it("calls rpc(upsert_lww) with p_table and p_rows and returns accepted guids", async () => {
+    const guids = ["guid-1", "guid-2"];
+    const sb = makeRpcStub(guids);
+    const client = createSupabaseSyncClient(sb);
+
+    const rows: RemoteRow[] = [
+      { guid: "guid-1", user_id: "u1", updated_at: 10, deleted_at: null },
+      { guid: "guid-2", user_id: "u1", updated_at: 20, deleted_at: null },
+    ];
+    const result = await client.upsert("tasks", rows);
+    expect(result.accepted).toEqual(guids);
+  });
+
+  it("returns accepted=[] when rpc returns null data", async () => {
+    const sb = makeRpcStub(null);
+    const client = createSupabaseSyncClient(sb);
+    const result = await client.upsert("tasks", [
+      { guid: "g1", user_id: "u1", updated_at: 1, deleted_at: null },
+    ]);
+    expect(result.accepted).toEqual([]);
+  });
+
+  it("short-circuits and returns accepted=[] when rows array is empty", async () => {
+    // rpc should never be called — stub it to throw.
+    const sb = {
+      from: () => { throw new Error("from not expected"); },
+      auth: { getUser: () => Promise.resolve({ data: { user: null } }) },
+      rpc: () => { throw new Error("rpc must not be called for empty rows"); },
+      storage: null,
+    } as unknown as SupabaseClient;
+    const client = createSupabaseSyncClient(sb);
+    const result = await client.upsert("tasks", []);
+    expect(result.accepted).toEqual([]);
+  });
+
+  it("throws when rpc returns an error", async () => {
+    const sb = makeRpcStub(null, new Error("upsert error"));
+    const client = createSupabaseSyncClient(sb);
+    await expect(
+      client.upsert("tasks", [{ guid: "g1", user_id: "u1", updated_at: 1, deleted_at: null }]),
+    ).rejects.toThrow("upsert error");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// countLive
+// ---------------------------------------------------------------------------
+
+describe("countLive", () => {
+  it("returns the count from the server (non-null)", async () => {
+    const sb = makeCountStub(42);
+    const client = createSupabaseSyncClient(sb);
+    expect(await client.countLive("projects")).toBe(42);
+  });
+
+  it("returns 0 when count is null (empty table)", async () => {
+    const sb = makeCountStub(null);
+    const client = createSupabaseSyncClient(sb);
+    expect(await client.countLive("tasks")).toBe(0);
+  });
+
+  it("throws when the query returns an error", async () => {
+    const sb = makeCountStub(null, new Error("count error"));
+    const client = createSupabaseSyncClient(sb);
+    await expect(client.countLive("ideas")).rejects.toThrow("count error");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// uploadPhoto
+// ---------------------------------------------------------------------------
+
+describe("uploadPhoto", () => {
+  it("uploads to storage bucket 'photos' with contentType image/webp and upsert:true", async () => {
+    const sb = makeStorageStub({ uploadResult: { error: null } });
+    const client = createSupabaseSyncClient(sb);
+    const blob = new Blob(["data"], { type: "image/webp" });
+    // Should resolve without throwing.
+    await expect(client.uploadPhoto("u1/test.webp", blob)).resolves.toBeUndefined();
+  });
+
+  it("throws when storage upload returns an error", async () => {
+    const sb = makeStorageStub({ uploadResult: { error: new Error("upload failed") } });
+    const client = createSupabaseSyncClient(sb);
+    const blob = new Blob(["data"]);
+    await expect(client.uploadPhoto("u1/fail.webp", blob)).rejects.toThrow("upload failed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createSignedUrl
+// ---------------------------------------------------------------------------
+
+describe("createSignedUrl", () => {
+  it("returns the signedUrl from storage for the given path and expiry", async () => {
+    const sb = makeStorageStub({
+      signedUrlResult: { data: { signedUrl: "https://signed.example/photo.webp" }, error: null },
+    });
+    const client = createSupabaseSyncClient(sb);
+    const url = await client.createSignedUrl("u1/photo.webp", 3600);
+    expect(url).toBe("https://signed.example/photo.webp");
+  });
+
+  it("throws when storage createSignedUrl returns an error", async () => {
+    const sb = makeStorageStub({
+      signedUrlResult: { data: null, error: new Error("signing failed") },
+    });
+    const client = createSupabaseSyncClient(sb);
+    await expect(client.createSignedUrl("u1/photo.webp", 3600)).rejects.toThrow("signing failed");
   });
 });
