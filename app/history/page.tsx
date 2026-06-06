@@ -57,8 +57,9 @@ export default function HistoryPage() {
   for (const t of tasks
     .slice()
     .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))) {
+    // updatedAt as stable fallback — Date.now() is impure during render.
     const key = localDateKey(
-      new Date(t.completedAt ?? t.archivedAt ?? Date.now()),
+      new Date(t.completedAt ?? t.archivedAt ?? t.updatedAt),
     );
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(t);
