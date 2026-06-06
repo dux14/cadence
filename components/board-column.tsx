@@ -24,7 +24,7 @@ export function BoardColumn({
   isDropTarget: boolean;
   onDragStateChange: (dropBucket: Bucket | null) => void;
   onAnnounce?: (msg: string) => void;
-  onRequestFocus?: (id: number) => void;
+  onRequestFocus?: (id: number, bucket: Bucket) => void;
 }) {
   // Count non-done tasks for the column header badge.
   const openCount = tasks.filter((t) => t.status !== "done").length;

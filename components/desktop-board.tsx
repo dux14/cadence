@@ -32,39 +32,37 @@ export function DesktopBoard() {
   });
 
   // Pending focus restoration after keyboard transfer.
-  const pendingFocusId = useRef<number | null>(null);
-  const pendingFocusAttempts = useRef(0);
+  const focusRaf = useRef(0);
 
   function announce(msg: string) {
     setAnnouncement((prev) => ({ text: msg, tick: prev.tick + 1 }));
   }
 
-  function requestFocus(id: number) {
-    pendingFocusId.current = id;
-    pendingFocusAttempts.current = 0;
+  // Restore focus after a keyboard transfer. The handle must be queried inside
+  // the DESTINATION column: right after the transfer the source TaskList still
+  // renders the task (its `order` state resyncs one render later), so an
+  // unscoped query would focus the old handle just before it unmounts and drop
+  // focus to <body>. rAF-retry until the destination TaskList resyncs and the
+  // handle exists there (Dexie round-trip + re-render), with a ~0.5 s TTL so a
+  // disappeared task can't poll forever.
+  function requestFocus(id: number, bucket: Bucket) {
+    cancelAnimationFrame(focusRaf.current);
+    let attempts = 0;
+    const tryFocus = () => {
+      const el = boardRef.current?.querySelector<HTMLElement>(
+        `[data-bucket="${bucket}"] [data-drag-handle][data-task-id="${id}"]`,
+      );
+      if (el) {
+        el.focus();
+      } else if (++attempts < 30) {
+        focusRaf.current = requestAnimationFrame(tryFocus);
+      }
+    };
+    focusRaf.current = requestAnimationFrame(tryFocus);
   }
 
-  // Restore focus after useLiveQuery re-renders the task in its new column.
-  // Gives up after 3 failed attempts so a disappeared task doesn't keep the
-  // ref armed and steal focus on unrelated updates.
-  useEffect(() => {
-    const id = pendingFocusId.current;
-    if (id == null) return;
-    const el = boardRef.current?.querySelector<HTMLElement>(
-      `[data-drag-handle][data-task-id="${id}"]`,
-    );
-    if (el) {
-      el.focus();
-      pendingFocusId.current = null;
-      pendingFocusAttempts.current = 0;
-    } else {
-      pendingFocusAttempts.current += 1;
-      if (pendingFocusAttempts.current >= 3) {
-        pendingFocusId.current = null;
-        pendingFocusAttempts.current = 0;
-      }
-    }
-  }, [tasks]);
+  // Cancel any in-flight focus retry on unmount.
+  useEffect(() => () => cancelAnimationFrame(focusRaf.current), []);
 
   useEffect(() => {
     const el = boardRef.current;

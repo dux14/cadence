@@ -24,7 +24,7 @@ export function TaskList({
   bucket?: Bucket;
   onTransfer?: (id: number, toBucket: Bucket) => void;
   onAnnounce?: (msg: string) => void;
-  onRequestFocus?: (id: number) => void;
+  onRequestFocus?: (id: number, bucket: Bucket) => void;
 }) {
   const { order, draggingId, rowRef, handleProps } = useDragReorder(
     tasks,
@@ -122,7 +122,7 @@ export function TaskList({
                             const target = adjacentBucket(bucket, dir, bucketIds);
                             if (target === null) return;
                             onTransfer(t.id!, target);
-                            onRequestFocus?.(t.id!);
+                            onRequestFocus?.(t.id!, target);
                             const targetLabel =
                               BUCKETS.find((b) => b.id === target)?.label ?? target;
                             onAnnounce?.(`Moved to ${targetLabel}`);
