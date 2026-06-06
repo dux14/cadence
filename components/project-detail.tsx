@@ -88,7 +88,7 @@ export function ProjectDetail({
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 pt-5 pb-10">
+    <div className="mx-auto w-full max-w-2xl px-4 pt-5 pb-10 lg:max-w-5xl lg:px-6">
       <header className="mb-5 flex items-center gap-2">
         <button
           onClick={onBack}
@@ -131,50 +131,52 @@ export function ProjectDetail({
         </button>
       </header>
 
-      <section className="mb-7">
-        <h2 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-muted">
-          <ListChecks size={15} /> Tasks
-        </h2>
-        {sortedTasks.length === 0 ? (
-          <p className="px-1 text-[13px] text-muted">
-            No tasks yet. Add one from Today with this project selected, or
-            promote an idea below.
-          </p>
-        ) : (
-          <TaskList tasks={sortedTasks} projects={projectMap} />
-        )}
-      </section>
+      <div className="lg:grid lg:grid-cols-2 lg:gap-8">
+        <section className="mb-7 lg:mb-0">
+          <h2 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-muted">
+            <ListChecks size={15} /> Tasks
+          </h2>
+          {sortedTasks.length === 0 ? (
+            <p className="px-1 text-[13px] text-muted">
+              No tasks yet. Add one from Today with this project selected, or
+              promote an idea below.
+            </p>
+          ) : (
+            <TaskList tasks={sortedTasks} projects={projectMap} />
+          )}
+        </section>
 
-      <section>
-        <h2 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-muted">
-          <Lightbulb size={15} /> Ideas
-        </h2>
-        <div className="mb-3 flex gap-2">
-          <Input
-            value={idea}
-            onChange={(e) => setIdea(e.target.value)}
-            placeholder="Capture an improvement…"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void submitIdea();
-            }}
-          />
-          <Button
-            size="icon"
-            onClick={() => void submitIdea()}
-            disabled={!idea.trim()}
-            aria-label="Add idea"
-          >
-            <Plus size={20} />
-          </Button>
-        </div>
-        {sortedIdeas.length === 0 ? (
-          <p className="px-1 text-[13px] text-muted">
-            No ideas parked. Jot improvements here; promote any into a task.
-          </p>
-        ) : (
-          <IdeaList ideas={sortedIdeas} />
-        )}
-      </section>
+        <section>
+          <h2 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-muted">
+            <Lightbulb size={15} /> Ideas
+          </h2>
+          <div className="mb-3 flex gap-2">
+            <Input
+              value={idea}
+              onChange={(e) => setIdea(e.target.value)}
+              placeholder="Capture an improvement…"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void submitIdea();
+              }}
+            />
+            <Button
+              size="icon"
+              onClick={() => void submitIdea()}
+              disabled={!idea.trim()}
+              aria-label="Add idea"
+            >
+              <Plus size={20} />
+            </Button>
+          </div>
+          {sortedIdeas.length === 0 ? (
+            <p className="px-1 text-[13px] text-muted">
+              No ideas parked. Jot improvements here; promote any into a task.
+            </p>
+          ) : (
+            <IdeaList ideas={sortedIdeas} />
+          )}
+        </section>
+      </div>
 
       <Sheet open={editOpen} onOpenChange={setEditOpen}>
         <SheetContent title="Edit project">

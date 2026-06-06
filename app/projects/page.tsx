@@ -72,7 +72,7 @@ function ProjectsView() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 pt-5">
+    <div className="mx-auto w-full max-w-2xl px-4 pt-5 md:max-w-5xl md:px-6">
       <header className="mb-4 flex items-center justify-between">
         <h1 className="font-display text-xl font-bold">Projects</h1>
         <Button size="sm" onClick={() => setOpen(true)}>
@@ -87,7 +87,7 @@ function ProjectsView() {
           hint="Create a project or life area to group tasks and park ideas."
         />
       ) : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
           {projects.map((p) => (
             <ProjectCard
               key={p.id}
