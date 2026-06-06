@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Image as ImageIcon, Maximize2, Minimize2, Plus } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db/schema";
@@ -39,6 +39,25 @@ export function QuickAdd({
     [],
     [],
   );
+
+  // Atajo global: "N" abre el quick-add de Today cuando el foco no está en un
+  // campo de texto. Solo la instancia inline de Today escucha (evita duplicados).
+  useEffect(() => {
+    if (variant !== "inline" || defaultBucket !== "today") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "n" && e.key !== "N") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = document.activeElement as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+      e.preventDefault();
+      openSheet();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // openSheet es estable entre renders (no usa deps externas mutables).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variant, defaultBucket]);
 
   // Capture pastes only while the add sheet is open, so screenshots land here
   // without hijacking pastes elsewhere in the app.
