@@ -47,6 +47,8 @@ export function QuickAdd({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "n" && e.key !== "N") return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.isComposing) return; // IME safety
+      if (document.querySelector('[role="dialog"]')) return; // never stack a second sheet
       const el = document.activeElement as HTMLElement | null;
       const tag = el?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
