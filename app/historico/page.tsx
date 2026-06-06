@@ -20,10 +20,22 @@ import { ChecklistChip } from "@/components/checklist-chip";
 import { ChecklistEditor } from "@/components/checklist-editor";
 import { DuePicker } from "@/components/due-picker";
 import { LinkChip } from "@/components/link-chip";
+import { PhotoChip } from "@/components/photo-chip";
+import { PhotoGrid } from "@/components/photo-grid";
+import { PhotoAttachButton } from "@/components/photo-attach-button";
+import { addPhoto, listPhotos } from "@/lib/db/photos";
+import { usePasteImages } from "@/lib/use-paste-images";
+import type { CompressedImage } from "@/lib/image/compress";
 import { extractLinks } from "@/lib/links";
 import { firstLines } from "@/lib/multiline";
 import { cn } from "@/lib/utils";
 import type { BacklogItem, Subtask } from "@/lib/types";
+
+/** Per-item preview chip; isolates the live photo query into its own row. */
+function BacklogPhotoChip({ guid }: { guid: string }) {
+  const photos = useLiveQuery(() => listPhotos(guid), [guid], []);
+  return <PhotoChip count={photos.length} />;
+}
 
 export default function HistoricoPage() {
   const router = useRouter();
@@ -43,6 +55,25 @@ export default function HistoricoPage() {
   const [eSubtasks, setESubtasks] = useState<Subtask[]>([]);
   const [eDue, setEDue] = useState<number | null>(null);
   const [eDueHasTime, setEDueHasTime] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+
+  const editingPhotos = useLiveQuery(
+    () => (editing ? listPhotos(editing.guid) : []),
+    [editing?.guid],
+    [],
+  );
+
+  async function attachPhoto(img: CompressedImage) {
+    if (!editing) return;
+    try {
+      await addPhoto({ parentType: "backlog", parentGuid: editing.guid, ...img });
+      setPhotoError(null);
+    } catch {
+      setPhotoError("Couldn't add that image.");
+    }
+  }
+
+  usePasteImages(editing != null, attachPhoto, setPhotoError);
 
   async function submit() {
     if (!text.trim()) return;
@@ -56,6 +87,7 @@ export default function HistoricoPage() {
     setESubtasks(item.subtasks ?? []);
     setEDue(item.due ?? null);
     setEDueHasTime(item.dueHasTime ?? false);
+    setPhotoError(null);
   }
 
   function save() {
@@ -130,17 +162,14 @@ export default function HistoricoPage() {
                 <p className="whitespace-pre-line text-[14px] leading-snug line-clamp-2">
                   {firstLines(it.title, 2)}
                 </p>
-                {(it.due != null ||
-                  (it.subtasks?.length ?? 0) > 0 ||
-                  (it.links?.length ?? 0) > 0) && (
-                  <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                    <DueChip due={it.due} dueHasTime={it.dueHasTime} />
-                    <ChecklistChip subtasks={it.subtasks ?? []} />
-                    {(it.links ?? []).map((l) => (
-                      <LinkChip key={l} url={l} />
-                    ))}
-                  </span>
-                )}
+                <span className="mt-1 flex flex-wrap items-center gap-1.5 empty:mt-0">
+                  <DueChip due={it.due} dueHasTime={it.dueHasTime} />
+                  <ChecklistChip subtasks={it.subtasks ?? []} />
+                  {(it.links ?? []).map((l) => (
+                    <LinkChip key={l} url={l} />
+                  ))}
+                  <BacklogPhotoChip guid={it.guid} />
+                </span>
               </button>
               <button
                 onClick={() => void promote(it)}
@@ -181,6 +210,14 @@ export default function HistoricoPage() {
           </div>
           <div className="mt-4">
             <ChecklistEditor subtasks={eSubtasks} onChange={setESubtasks} />
+          </div>
+          <div className="mt-4">
+            <p className="mb-1.5 text-[12px] font-medium text-muted">Photos</p>
+            <PhotoAttachButton onAttach={attachPhoto} onError={setPhotoError} />
+            {photoError && (
+              <p className="mt-1.5 text-[12px] text-danger">{photoError}</p>
+            )}
+            <PhotoGrid photos={editingPhotos} />
           </div>
           <div className="mt-5 flex items-center justify-between">
             <Button

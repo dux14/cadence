@@ -1,15 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { Maximize2, Minimize2, Plus } from "lucide-react";
+import { Image as ImageIcon, Maximize2, Minimize2, Plus } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db/schema";
 import { addTask } from "@/lib/db/queries";
+import { addPhoto } from "@/lib/db/photos";
 import { extractLinks } from "@/lib/links";
+import { usePasteImages } from "@/lib/use-paste-images";
+import type { CompressedImage } from "@/lib/image/compress";
 import { BUCKETS, type Bucket } from "@/lib/types";
 import { Sheet, SheetContent } from "./ui/sheet";
 import { Button } from "./ui/button";
 import { DuePicker } from "./due-picker";
+import { PhotoAttachButton } from "./photo-attach-button";
 import { cn } from "@/lib/utils";
 
 export function QuickAdd({
@@ -26,10 +30,20 @@ export function QuickAdd({
   const [due, setDue] = useState<number | null>(null);
   const [dueHasTime, setDueHasTime] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [pending, setPending] = useState<CompressedImage[]>([]);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const projects = useLiveQuery(
     () => db.projects.orderBy("order").toArray(),
     [],
     [],
+  );
+
+  // Capture pastes only while the add sheet is open, so screenshots land here
+  // without hijacking pastes elsewhere in the app.
+  usePasteImages(
+    open,
+    (img) => setPending((p) => [...p, img]),
+    setPhotoError,
   );
 
   function openSheet() {
@@ -39,14 +53,35 @@ export function QuickAdd({
     setDue(null);
     setDueHasTime(false);
     setExpanded(false);
+    setPending([]);
+    setPhotoError(null);
     setOpen(true);
   }
 
   async function submit() {
     const { title, links } = extractLinks(text);
     const finalTitle = title.trim() || text.trim();
-    if (!finalTitle) return;
-    await addTask({ title: finalTitle, links, projectId, bucket, due, dueHasTime });
+    // Allow creating with photos only (no title typed).
+    if (!finalTitle && pending.length === 0) return;
+    const titleToSave = finalTitle || "Photo";
+    const taskId = await addTask({
+      title: titleToSave,
+      links,
+      projectId,
+      bucket,
+      due,
+      dueHasTime,
+    });
+    if (pending.length > 0) {
+      const task = await db.tasks.get(taskId);
+      if (task) {
+        for (const img of pending) {
+          await addPhoto({ parentType: "task", parentGuid: task.guid, ...img });
+        }
+      }
+    }
+    setPending([]);
+    setPhotoError(null);
     setOpen(false);
   }
 
@@ -153,10 +188,25 @@ export function QuickAdd({
             />
           </div>
 
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <PhotoAttachButton
+              onAttach={(img) => setPending((p) => [...p, img])}
+              onError={setPhotoError}
+            />
+            {pending.length > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-border/60 px-1.5 py-0.5 text-[11px] text-muted">
+                <ImageIcon size={11} /> {pending.length} attached
+              </span>
+            )}
+          </div>
+          {photoError && (
+            <p className="mt-1.5 text-[12px] text-danger">{photoError}</p>
+          )}
+
           <Button
             className="mt-5 w-full"
             onClick={() => void submit()}
-            disabled={!text.trim()}
+            disabled={!text.trim() && pending.length === 0}
           >
             Add task
           </Button>

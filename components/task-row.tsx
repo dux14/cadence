@@ -12,6 +12,9 @@ import { ProjectTag } from "./project-tag";
 import { LinkChip } from "./link-chip";
 import { DueChip } from "./due-chip";
 import { ChecklistChip } from "./checklist-chip";
+import { PhotoChip } from "./photo-chip";
+import { PhotoGrid } from "./photo-grid";
+import { PhotoAttachButton } from "./photo-attach-button";
 import { StatusToggle } from "./status-toggle";
 import { ChecklistEditor } from "./checklist-editor";
 import { DuePicker } from "./due-picker";
@@ -24,6 +27,9 @@ import {
   setTaskStatus,
   updateTask,
 } from "@/lib/db/queries";
+import { addPhoto, listPhotos } from "@/lib/db/photos";
+import { usePasteImages } from "@/lib/use-paste-images";
+import type { CompressedImage } from "@/lib/image/compress";
 import { extractLinks } from "@/lib/links";
 
 const STATUSES: { id: TaskStatus; label: string }[] = [
@@ -50,11 +56,25 @@ export function TaskRow({
   const [dueHasTime, setDueHasTime] = useState<boolean>(task.dueHasTime ?? false);
   const done = task.status === "done";
   const [isNew] = useState(() => Date.now() - task.createdAt < 1500);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const projects = useLiveQuery(
     () => (open ? db.projects.orderBy("order").toArray() : []),
     [open],
   );
+
+  const photos = useLiveQuery(() => listPhotos(task.guid), [task.guid], []);
+
+  async function attachPhoto(img: CompressedImage) {
+    try {
+      await addPhoto({ parentType: "task", parentGuid: task.guid, ...img });
+      setPhotoError(null);
+    } catch {
+      setPhotoError("Couldn't add that image.");
+    }
+  }
+
+  usePasteImages(open, attachPhoto, setPhotoError);
 
   function openSheet() {
     setTitle(task.title);
@@ -84,6 +104,7 @@ export function TaskRow({
     task.due != null ||
     (task.subtasks?.length ?? 0) > 0 ||
     task.links.length > 0 ||
+    photos.length > 0 ||
     !!project ||
     (task.carried && !done);
 
@@ -113,7 +134,7 @@ export function TaskRow({
             {task.links.map((l) => (
               <LinkChip key={l} url={l} />
             ))}
-            {/* TODO(SP2): photo chip goes here, after links. */}
+            <PhotoChip count={photos.length} />
             {project && <ProjectTag name={project.name} color={project.color} />}
             {task.carried && !done && (
               <span className="inline-flex items-center gap-1 rounded-md bg-border/60 px-1.5 py-0.5 text-[11px] text-muted">
@@ -166,6 +187,15 @@ export function TaskRow({
 
           <div className="mt-4">
             <ChecklistEditor subtasks={subtasks} onChange={setSubtasks} />
+          </div>
+
+          <div className="mt-4">
+            <p className="mb-1.5 text-[12px] font-medium text-muted">Photos</p>
+            <PhotoAttachButton onAttach={attachPhoto} onError={setPhotoError} />
+            {photoError && (
+              <p className="mt-1.5 text-[12px] text-danger">{photoError}</p>
+            )}
+            <PhotoGrid photos={photos} />
           </div>
 
           {task.links.length > 0 && (

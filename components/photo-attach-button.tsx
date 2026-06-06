@@ -6,9 +6,11 @@ import { compressImage, type CompressedImage } from "@/lib/image/compress";
 
 export function PhotoAttachButton({
   onAttach,
+  onError,
   disabled,
 }: {
   onAttach: (img: CompressedImage) => void | Promise<void>;
+  onError?: (message: string) => void;
   disabled?: boolean;
 }) {
   const pickerRef = useRef<HTMLInputElement>(null);
@@ -18,8 +20,12 @@ export function PhotoAttachButton({
     if (!files) return;
     for (const file of Array.from(files)) {
       if (!file.type.startsWith("image/")) continue;
-      const img = await compressImage(file);
-      await onAttach(img);
+      try {
+        const img = await compressImage(file);
+        await onAttach(img);
+      } catch {
+        onError?.("Couldn't add that image.");
+      }
     }
   }
 

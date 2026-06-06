@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowUpRight, Trash2 } from "lucide-react";
 import type { Idea, Subtask } from "@/lib/types";
 import { BUCKETS } from "@/lib/types";
@@ -9,6 +10,9 @@ import {
   promoteIdeaToTask,
   updateIdea,
 } from "@/lib/db/queries";
+import { addPhoto, listPhotos } from "@/lib/db/photos";
+import { usePasteImages } from "@/lib/use-paste-images";
+import type { CompressedImage } from "@/lib/image/compress";
 import { extractLinks } from "@/lib/links";
 import { firstLines } from "@/lib/multiline";
 import { Sheet, SheetContent } from "./ui/sheet";
@@ -16,6 +20,9 @@ import { Button } from "./ui/button";
 import { LinkChip } from "./link-chip";
 import { DueChip } from "./due-chip";
 import { ChecklistChip } from "./checklist-chip";
+import { PhotoChip } from "./photo-chip";
+import { PhotoGrid } from "./photo-grid";
+import { PhotoAttachButton } from "./photo-attach-button";
 import { ChecklistEditor } from "./checklist-editor";
 import { DuePicker } from "./due-picker";
 import { cn } from "@/lib/utils";
@@ -27,6 +34,20 @@ export function IdeaRow({ idea, handle }: { idea: Idea; handle?: ReactNode }) {
   const [due, setDue] = useState<number | null>(idea.due ?? null);
   const [dueHasTime, setDueHasTime] = useState<boolean>(idea.dueHasTime ?? false);
   const [isNew] = useState(() => Date.now() - idea.createdAt < 1500);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+
+  const photos = useLiveQuery(() => listPhotos(idea.guid), [idea.guid], []);
+
+  async function attachPhoto(img: CompressedImage) {
+    try {
+      await addPhoto({ parentType: "idea", parentGuid: idea.guid, ...img });
+      setPhotoError(null);
+    } catch {
+      setPhotoError("Couldn't add that image.");
+    }
+  }
+
+  usePasteImages(open, attachPhoto, setPhotoError);
 
   function openSheet() {
     setText(idea.text);
@@ -56,7 +77,8 @@ export function IdeaRow({ idea, handle }: { idea: Idea; handle?: ReactNode }) {
   const hasPreview =
     idea.due != null ||
     (idea.subtasks?.length ?? 0) > 0 ||
-    (idea.links?.length ?? 0) > 0;
+    (idea.links?.length ?? 0) > 0 ||
+    photos.length > 0;
 
   return (
     <div
@@ -76,6 +98,7 @@ export function IdeaRow({ idea, handle }: { idea: Idea; handle?: ReactNode }) {
             {(idea.links ?? []).map((l) => (
               <LinkChip key={l} url={l} />
             ))}
+            <PhotoChip count={photos.length} />
           </span>
         )}
       </button>
@@ -118,6 +141,15 @@ export function IdeaRow({ idea, handle }: { idea: Idea; handle?: ReactNode }) {
 
           <div className="mt-4">
             <ChecklistEditor subtasks={subtasks} onChange={setSubtasks} />
+          </div>
+
+          <div className="mt-4">
+            <p className="mb-1.5 text-[12px] font-medium text-muted">Photos</p>
+            <PhotoAttachButton onAttach={attachPhoto} onError={setPhotoError} />
+            {photoError && (
+              <p className="mt-1.5 text-[12px] text-danger">{photoError}</p>
+            )}
+            <PhotoGrid photos={photos} />
           </div>
 
           {(idea.links?.length ?? 0) > 0 && (

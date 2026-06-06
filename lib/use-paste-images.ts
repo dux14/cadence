@@ -10,6 +10,7 @@ import { compressImage, type CompressedImage } from "@/lib/image/compress";
 export function usePasteImages(
   enabled: boolean,
   onAttach: (img: CompressedImage) => void | Promise<void>,
+  onError?: (message: string) => void,
 ): void {
   useEffect(() => {
     if (!enabled) return;
@@ -26,8 +27,12 @@ export function usePasteImages(
       if (files.length === 0) return;
       e.preventDefault();
       for (const f of files) {
-        const img = await compressImage(f);
-        await onAttach(img);
+        try {
+          const img = await compressImage(f);
+          await onAttach(img);
+        } catch {
+          onError?.("Couldn't add that image.");
+        }
       }
     }
     window.addEventListener("paste", onPaste);

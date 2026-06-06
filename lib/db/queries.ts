@@ -1,5 +1,6 @@
 import { type Table } from "dexie";
 import { db } from "@/lib/db/schema";
+import { reparentPhotos, tombstonePhotosForParent } from "@/lib/db/photos";
 import { PROJECT_COLORS } from "@/lib/constants";
 import { localDateKey } from "@/lib/date";
 import { newGuid } from "@/lib/id";
@@ -57,10 +58,14 @@ export async function listProjects(): Promise<Project[]> {
 
 export async function deleteProject(id: number): Promise<void> {
   const now = touch();
-  await db.transaction("rw", db.projects, db.tasks, db.ideas, async () => {
+  await db.transaction("rw", db.projects, db.tasks, db.ideas, db.photos, async () => {
     const ideas = await db.ideas.where("projectId").equals(id).toArray();
-    for (const i of ideas) await db.ideas.update(i.id!, { deletedAt: now, updatedAt: now });
-    // Detach tasks rather than tombstone them.
+    for (const i of ideas) {
+      await db.ideas.update(i.id!, { deletedAt: now, updatedAt: now });
+      // Cascade: photos of tombstoned ideas die with them.
+      await tombstonePhotosForParent(i.guid);
+    }
+    // Detach tasks rather than tombstone them; their photos travel with them.
     const tasks = await db.tasks.where("projectId").equals(id).toArray();
     for (const t of tasks)
       await db.tasks.update(t.id!, { projectId: null, updatedAt: now });
@@ -161,7 +166,11 @@ export async function moveTask(id: number, bucket: Bucket): Promise<void> {
 
 export async function deleteTask(id: number): Promise<void> {
   const now = touch();
-  await db.tasks.update(id, { deletedAt: now, updatedAt: now });
+  await db.transaction("rw", db.tasks, db.photos, async () => {
+    const task = await db.tasks.get(id);
+    await db.tasks.update(id, { deletedAt: now, updatedAt: now });
+    if (task) await tombstonePhotosForParent(task.guid);
+  });
 }
 
 export async function reorderTasks(orderedIds: number[]): Promise<void> {
@@ -222,7 +231,11 @@ export async function updateIdea(
 
 export async function deleteIdea(id: number): Promise<void> {
   const now = touch();
-  await db.ideas.update(id, { deletedAt: now, updatedAt: now });
+  await db.transaction("rw", db.ideas, db.photos, async () => {
+    const idea = await db.ideas.get(id);
+    await db.ideas.update(id, { deletedAt: now, updatedAt: now });
+    if (idea) await tombstonePhotosForParent(idea.guid);
+  });
 }
 
 export async function reorderIdeas(orderedIds: number[]): Promise<void> {
@@ -236,8 +249,8 @@ export async function reorderIdeas(orderedIds: number[]): Promise<void> {
 
 /** Promote an idea into a real task, carrying links/subtasks/due. */
 export async function promoteIdeaToTask(idea: Idea, bucket: Bucket): Promise<void> {
-  await db.transaction("rw", db.tasks, db.ideas, async () => {
-    await addTask({
+  await db.transaction("rw", db.tasks, db.ideas, db.photos, async () => {
+    const taskId = await addTask({
       title: idea.text,
       links: idea.links ?? [],
       subtasks: idea.subtasks ?? [],
@@ -246,6 +259,9 @@ export async function promoteIdeaToTask(idea: Idea, bucket: Bucket): Promise<voi
       due: idea.due ?? null,
       dueHasTime: idea.dueHasTime ?? false,
     });
+    // addTask returns the numeric id; read back for the guid to re-parent photos.
+    const task = await db.tasks.get(taskId);
+    if (task) await reparentPhotos(idea.guid, "task", task.guid);
     await db.ideas.update(idea.id!, { status: "promoted", updatedAt: touch() });
   });
 }
@@ -296,7 +312,11 @@ export async function updateBacklog(
 
 export async function deleteBacklog(id: number): Promise<void> {
   const now = touch();
-  await db.backlog.update(id, { deletedAt: now, updatedAt: now });
+  await db.transaction("rw", db.backlog, db.photos, async () => {
+    const item = await db.backlog.get(id);
+    await db.backlog.update(id, { deletedAt: now, updatedAt: now });
+    if (item) await tombstonePhotosForParent(item.guid);
+  });
 }
 
 /** Promote a parked Histórico idea into a full project. */
