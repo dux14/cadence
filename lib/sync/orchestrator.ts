@@ -25,6 +25,9 @@ export function onSyncState(cb: Listener): () => void {
 }
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryDelay = 5_000;
+const RETRY_DELAY_MAX = 60_000;
 let started = false;
 
 /**
@@ -57,9 +60,19 @@ async function runSync(): Promise<void> {
       await pushPhotoMetadata(client, userId);
       await uploadPendingPhotos(client, userId);
     });
+    retryDelay = 5_000;
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     setState("synced");
   } catch {
+    // Transient failure (network blip, 5xx, token refresh): retry with
+    // backoff — external triggers (focus/online/write) are not guaranteed.
     setState("pending");
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => void runSync(), retryDelay);
+    retryDelay = Math.min(retryDelay * 2, RETRY_DELAY_MAX);
   }
 }
 
@@ -78,16 +91,21 @@ export async function ensureMigrated(): Promise<void> {
   const userId = await client.getUserId();
   if (!userId) return;
   setState("pending");
-  const result = await migrateInitial(client, userId);
-  await pushPhotoMetadata(client, userId);
-  await uploadPendingPhotos(client, userId);
-  if (result.ok) {
-    await setMeta("sync.migrated", true);
-    setState("synced");
-  } else {
-    // Keep running locally; will retry on the next trigger.
-    setState("pending");
-  }
+  // Same push lock as runSync so the migration never races a regular push
+  // over the photo queue; double-check the flag once inside the lock.
+  await withPushLock(async () => {
+    if (await getMeta<boolean>("sync.migrated", false)) return;
+    const result = await migrateInitial(client, userId);
+    await pushPhotoMetadata(client, userId);
+    await uploadPendingPhotos(client, userId);
+    if (result.ok) {
+      await setMeta("sync.migrated", true);
+      setState("synced");
+    } else {
+      // Keep running locally; will retry on the next trigger.
+      setState("pending");
+    }
+  });
 }
 
 let realtimeChannel: ReturnType<ReturnType<typeof getSupabase>["channel"]> | null =
@@ -102,6 +120,8 @@ function startRealtime(): void {
     // event "*" matches REALTIME_POSTGRES_CHANGES_LISTEN_EVENT.ALL.
     // Both are string-literal enum values — using them directly avoids
     // importing @supabase/realtime-js (which is not a direct dep).
+    // No user_id filter here: WALRUS applies RLS server-side, so this
+    // channel only ever receives changes for the authenticated user.
     ch.on(
       "postgres_changes",
       { event: "*", schema: "public", table },
@@ -139,8 +159,14 @@ export function startSync(): () => void {
     document.removeEventListener("visibilitychange", onVisible);
     window.removeEventListener("online", onOnline);
     window.removeEventListener("offline", onOffline);
-    realtimeChannel?.unsubscribe();
+    // removeChannel (not just unsubscribe) so repeated start/stop cycles
+    // don't accumulate dead channels in the client registry.
+    if (realtimeChannel) void getSupabase().removeChannel(realtimeChannel);
     realtimeChannel = null;
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     started = false;
   };
 }
