@@ -6,7 +6,9 @@ import { seedIfEmpty } from "@/lib/db/seed";
 
 let booted: Promise<void> | null = null;
 
-function boot() {
+/** One-time local boot (seed + rollover). Awaited by SyncBoot so the
+ *  initial migration never measures a half-seeded database. */
+export function boot() {
   if (!booted) {
     booted = (async () => {
       await seedIfEmpty();
