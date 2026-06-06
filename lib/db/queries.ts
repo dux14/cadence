@@ -1,4 +1,5 @@
 import { type Table } from "dexie";
+import { syncClock } from "@/lib/db/clock";
 import { db } from "@/lib/db/schema";
 import { reparentPhotos, tombstonePhotosForParent } from "@/lib/db/photos";
 import { PROJECT_COLORS } from "@/lib/constants";
@@ -14,13 +15,6 @@ import type {
   Task,
   TaskStatus,
 } from "@/lib/types";
-
-let lastStamp = 0;
-/** Monotonic clock for updatedAt: never goes backwards within a session (sync cursors depend on it). */
-export function syncClock(): number {
-  lastStamp = Math.max(Date.now(), lastStamp + 1);
-  return lastStamp;
-}
 
 /** Fresh updatedAt stamp for any local write (sync-ready). */
 function touch(): number {

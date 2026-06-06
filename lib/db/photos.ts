@@ -1,3 +1,4 @@
+import { syncClock } from "@/lib/db/clock";
 import { db } from "@/lib/db/schema";
 import { newGuid } from "@/lib/id";
 import type { Photo, PhotoParentType } from "@/lib/types";
@@ -13,7 +14,7 @@ export interface AddPhotoInput {
 
 /** Insert a fully-formed photo row. The binary lives only here. */
 export async function addPhoto(input: AddPhotoInput): Promise<number> {
-  const now = Date.now();
+  const now = syncClock();
   return db.photos.add({
     guid: newGuid(),
     parentType: input.parentType,
@@ -39,7 +40,7 @@ export async function listPhotos(parentGuid: string): Promise<Photo[]> {
 
 /** Soft-delete (tombstone) a single photo. */
 export async function tombstonePhoto(id: number): Promise<void> {
-  const now = Date.now();
+  const now = syncClock();
   await db.photos.update(id, { deletedAt: now, updatedAt: now });
 }
 
@@ -52,7 +53,7 @@ export async function reparentPhotos(
   toParentType: PhotoParentType,
   toParentGuid: string,
 ): Promise<void> {
-  const now = Date.now();
+  const now = syncClock();
   await db.transaction("rw", db.photos, async () => {
     const rows = await db.photos
       .where("parentGuid")
@@ -76,7 +77,7 @@ export async function reparentPhotos(
 export async function tombstonePhotosForParent(
   parentGuid: string,
 ): Promise<void> {
-  const now = Date.now();
+  const now = syncClock();
   await db.transaction("rw", db.photos, async () => {
     const rows = await db.photos
       .where("parentGuid")

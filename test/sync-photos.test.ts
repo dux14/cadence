@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { db } from "@/lib/db/schema";
-import type { SyncClient } from "@/lib/sync/types";
+import type { RemoteRow, SyncClient } from "@/lib/sync/types";
 import { storagePathFor, uploadPendingPhotos, pushPhotoMetadata } from "@/lib/sync/photos";
+import { getLastPushedAt } from "@/lib/sync/dirty";
 
 function mockClient(): SyncClient {
   return {
@@ -98,5 +99,48 @@ describe("pushPhotoMetadata", () => {
         }),
       ]),
     );
+  });
+
+  function photoRow(guid: string, updatedAt: number) {
+    return {
+      guid,
+      parentType: "task" as const,
+      parentGuid: "t1",
+      blob: new Blob(["x"]),
+      thumb: new Blob(["y"]),
+      width: 10,
+      height: 10,
+      createdAt: updatedAt,
+      updatedAt,
+      deletedAt: null,
+      remoteUrl: `u1/${guid}.webp`,
+    };
+  }
+
+  it("advances cursor to max updatedAt when every row is accepted", async () => {
+    const client = mockClient();
+    client.upsert = vi.fn(async (_t, rows: RemoteRow[]) => ({
+      accepted: rows.map((r) => r.guid),
+    }));
+    await db.photos.add(photoRow("g4", 10));
+    await db.photos.add(photoRow("g5", 20));
+    await pushPhotoMetadata(client, "u1");
+    expect(await getLastPushedAt("photos")).toBe(20);
+  });
+
+  it("keeps LWW-rejected photos dirty by rolling the cursor back", async () => {
+    const client = mockClient();
+    // Server accepts g5 (@20) but rejects g4 (@10) — cursor must stay below 10.
+    client.upsert = vi.fn(async () => ({ accepted: ["g5"] }));
+    await db.photos.add(photoRow("g4", 10));
+    await db.photos.add(photoRow("g5", 20));
+    await pushPhotoMetadata(client, "u1");
+    expect(await getLastPushedAt("photos")).toBe(9);
+
+    // Next push re-sends the rejected row (and the accepted one above the
+    // rollback point — harmless, the upsert is idempotent).
+    await pushPhotoMetadata(client, "u1");
+    const secondCallRows = vi.mocked(client.upsert).mock.calls[1][1];
+    expect(secondCallRows.map((r) => r.guid)).toContain("g4");
   });
 });

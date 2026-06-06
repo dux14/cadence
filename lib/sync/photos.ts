@@ -2,7 +2,7 @@ import { db } from "@/lib/db/schema";
 import type { SyncClient } from "@/lib/sync/types";
 import { photoToRemote } from "@/lib/sync/mappers";
 import { getLastPushedAt, setLastPushedAt } from "@/lib/sync/dirty";
-import { syncClock } from "@/lib/db/queries";
+import { syncClock } from "@/lib/db/clock";
 
 export function storagePathFor(userId: string, guid: string): string {
   return `${userId}/${guid}.webp`;
@@ -53,9 +53,19 @@ export async function pushPhotoMetadata(
   );
   if (dirty.length === 0) return;
   const rows = dirty.map((p) => photoToRemote(p, userId, p.remoteUrl ?? null));
-  await client.upsert("photos", rows);
-  const maxUpdated = dirty.reduce((m, p) => Math.max(m, p.updatedAt), since);
-  await setLastPushedAt("photos", maxUpdated);
+  const { accepted } = await client.upsert("photos", rows);
+  const acceptedSet = new Set(accepted);
+  const rejected = dirty.filter((p) => !acceptedSet.has(p.guid));
+  let next: number;
+  if (rejected.length === 0) {
+    next = dirty.reduce((m, p) => Math.max(m, p.updatedAt), since);
+  } else {
+    // Rejected rows must stay dirty: advance only below the oldest rejection.
+    // Re-pushing accepted rows above that point is harmless (idempotent upsert).
+    next = rejected.reduce((m, p) => Math.min(m, p.updatedAt), Infinity) - 1;
+    next = Math.max(next, since);
+  }
+  await setLastPushedAt("photos", next);
 }
 
 /**
