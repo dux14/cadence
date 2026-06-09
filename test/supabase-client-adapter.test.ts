@@ -116,14 +116,20 @@ function makeCountStub(count: number | null, error: unknown = null) {
   } as unknown as SupabaseClient;
 }
 
+// Captures the last upload(body, opts) so tests can assert what was actually
+// sent to Storage (ArrayBuffer body + contentType derived from the blob).
+let capturedUpload: { body: unknown; opts: unknown } | null = null;
+
 /** Minimal stub for the storage path used by uploadPhoto and createSignedUrl. */
 function makeStorageStub(opts: {
   uploadResult?: { error: unknown };
   signedUrlResult?: { data: { signedUrl: string } | null; error: unknown };
 }) {
   const bucket = {
-    upload: (_path: string, _blob: Blob, _opts: unknown) =>
-      Promise.resolve(opts.uploadResult ?? { error: null }),
+    upload: (_path: string, _body: unknown, _opts: unknown) => {
+      capturedUpload = { body: _body, opts: _opts };
+      return Promise.resolve(opts.uploadResult ?? { error: null });
+    },
     createSignedUrl: (_path: string, _expiry: number) =>
       Promise.resolve(opts.signedUrlResult ?? { data: { signedUrl: "https://signed/x" }, error: null }),
   };
@@ -293,12 +299,26 @@ describe("countLive", () => {
 // ---------------------------------------------------------------------------
 
 describe("uploadPhoto", () => {
-  it("uploads to storage bucket 'photos' with contentType image/webp and upsert:true", async () => {
+  it("uploads an ArrayBuffer body (not a Blob) so iOS Safari doesn't store 0 bytes", async () => {
+    capturedUpload = null;
     const sb = makeStorageStub({ uploadResult: { error: null } });
     const client = createSupabaseSyncClient(sb);
     const blob = new Blob(["data"], { type: "image/webp" });
-    // Should resolve without throwing.
     await expect(client.uploadPhoto("u1/test.webp", blob)).resolves.toBeUndefined();
+    const cap = capturedUpload as unknown as { body: unknown; opts: unknown };
+    expect(cap.body).toBeInstanceOf(ArrayBuffer);
+    expect((cap.body as ArrayBuffer).byteLength).toBe(4); // "data"
+    expect(cap.opts).toMatchObject({ contentType: "image/webp", upsert: true });
+  });
+
+  it("derives contentType from the blob (iOS JPEG fallback), not a hardcoded webp", async () => {
+    capturedUpload = null;
+    const sb = makeStorageStub({ uploadResult: { error: null } });
+    const client = createSupabaseSyncClient(sb);
+    const blob = new Blob(["jpegbytes"], { type: "image/jpeg" });
+    await client.uploadPhoto("u1/test.webp", blob);
+    const cap = capturedUpload as unknown as { opts: unknown };
+    expect(cap.opts).toMatchObject({ contentType: "image/jpeg" });
   });
 
   it("throws when storage upload returns an error", async () => {

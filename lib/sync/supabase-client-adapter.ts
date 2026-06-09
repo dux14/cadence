@@ -61,9 +61,17 @@ export function createSupabaseSyncClient(sb: SupabaseClient): SyncClient {
     },
 
     async uploadPhoto(path: string, blob: Blob) {
-      const { error } = await sb.storage
-        .from("photos")
-        .upload(path, blob, { contentType: "image/webp", upsert: true });
+      // iOS Safari uploads a 0-byte object when supabase-js wraps a Blob in a
+      // multipart FormData body (its default path for Blob inputs). Sending the
+      // raw ArrayBuffer takes the non-FormData branch, which Safari uploads
+      // correctly. contentType must come from the blob itself — iOS falls back
+      // to JPEG (canvas can't encode WebP there), so a hardcoded "image/webp"
+      // would mislabel those bytes and break decoding on the receiving device.
+      const buffer = await blob.arrayBuffer();
+      const { error } = await sb.storage.from("photos").upload(path, buffer, {
+        contentType: blob.type || "image/webp",
+        upsert: true,
+      });
       if (error) throw error;
     },
 
