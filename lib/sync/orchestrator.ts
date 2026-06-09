@@ -175,3 +175,27 @@ export function startSync(): () => void {
 }
 
 export { downloadPhotoBlob };
+
+/**
+ * UI-facing on-demand fetch: download and cache the full blob for a photo that
+ * arrived from another device as metadata only. Idempotent (downloadPhotoBlob
+ * returns the cached blob if present) and silent offline. The write into
+ * IndexedDB makes the parent's useLiveQuery re-render with the bytes present.
+ */
+const inFlightPhotoBlobs = new Map<string, Promise<void>>();
+
+export async function ensurePhotoBlob(guid: string): Promise<void> {
+  if (!navigator.onLine) return;
+  // Coalesce concurrent callers (grid + viewer mounted together, or N cells on
+  // first paint) so the same guid isn't fetched from Storage more than once —
+  // downloadPhotoBlob's cache check is read-before-write and races otherwise.
+  const existing = inFlightPhotoBlobs.get(guid);
+  if (existing) return existing;
+  const job = (async () => {
+    const client = createSupabaseSyncClient(getSupabase());
+    if (!(await client.getUserId())) return;
+    await downloadPhotoBlob(client, guid);
+  })().finally(() => inFlightPhotoBlobs.delete(guid));
+  inFlightPhotoBlobs.set(guid, job);
+  return job;
+}

@@ -4,7 +4,7 @@ export interface Dimensions {
 }
 
 export interface CompressedImage {
-  blob: Blob;
+  blob: Blob; // WebP where the canvas can encode it; JPEG fallback otherwise
   thumb: Blob;
   width: number;
   height: number;
@@ -14,7 +14,11 @@ export const MAX_SIDE = 1600;
 export const THUMB_SIDE = 200;
 export const QUALITY = 0.8;
 
-// Platform floor: WebP canvas encoding requires Safari/iOS >= 14 (Chrome/Firefox: any modern version). Older browsers get a descriptive error instead of a silently-oversized PNG.
+// iOS Safari/WebKit decodes WebP but cannot ENCODE it via canvas (toBlob /
+// convertToBlob ignore "image/webp" and yield PNG). So we prefer WebP for its
+// smaller size and fall back to JPEG — universally encodable — instead of
+// throwing. JPEG keeps every iPhone working; display reads blob.type, so the
+// stored extension is irrelevant.
 
 /**
  * Pure resize math: scale (w,h) so the longer side is at most `max`,
@@ -28,26 +32,26 @@ export function fitDimensions(w: number, h: number, max: number): Dimensions {
 }
 
 /**
- * Draw a bitmap onto an offscreen canvas at the given size and encode WebP.
+ * Draw a bitmap onto a canvas at the given size and encode it, preferring WebP
+ * and falling back to JPEG where the canvas can't encode WebP (iOS Safari).
  * Impure: depends on OffscreenCanvas/createImageBitmap. Not run under jsdom.
  */
-async function renderWebp(
+async function renderImage(
   bitmap: ImageBitmap,
   dims: Dimensions,
   quality: number,
 ): Promise<Blob> {
   // OffscreenCanvas where available (Chrome/Android/desktop); fall back to
-  // a detached <canvas> for Safari, which lacks convertToBlob.
+  // a detached <canvas> for Safari, which lacks OffscreenCanvas on older iOS.
   if (typeof OffscreenCanvas !== "undefined") {
     const canvas = new OffscreenCanvas(dims.width, dims.height);
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2d context unavailable");
     ctx.drawImage(bitmap, 0, 0, dims.width, dims.height);
-    const blob = await canvas.convertToBlob({ type: "image/webp", quality });
-    if (blob.type !== "image/webp") {
-      throw new Error("WebP encoding unsupported on this browser");
-    }
-    return blob;
+    const webp = await canvas.convertToBlob({ type: "image/webp", quality });
+    // WebKit ignores "image/webp" and returns PNG — re-encode as JPEG.
+    if (webp.type === "image/webp") return webp;
+    return canvas.convertToBlob({ type: "image/jpeg", quality });
   }
   const canvas = document.createElement("canvas");
   canvas.width = dims.width;
@@ -57,16 +61,19 @@ async function renderWebp(
   ctx.drawImage(bitmap, 0, 0, dims.width, dims.height);
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
-      (b) => {
-        if (!b) {
-          reject(new Error("toBlob returned null"));
+      (webp) => {
+        if (webp && webp.type === "image/webp") {
+          resolve(webp);
           return;
         }
-        if (b.type !== "image/webp") {
-          reject(new Error("WebP encoding unsupported on this browser"));
-          return;
-        }
-        resolve(b);
+        // iOS Safari: no WebP canvas encoder (it yields PNG or null) — JPEG is
+        // universally encodable, so use it rather than failing the upload.
+        canvas.toBlob(
+          (jpeg) =>
+            jpeg ? resolve(jpeg) : reject(new Error("toBlob returned null")),
+          "image/jpeg",
+          quality,
+        );
       },
       "image/webp",
       quality,
@@ -85,8 +92,8 @@ export async function compressImage(file: Blob): Promise<CompressedImage> {
     const full = fitDimensions(bitmap.width, bitmap.height, MAX_SIDE);
     const thumbDims = fitDimensions(bitmap.width, bitmap.height, THUMB_SIDE);
     const [blob, thumb] = await Promise.all([
-      renderWebp(bitmap, full, QUALITY),
-      renderWebp(bitmap, thumbDims, QUALITY),
+      renderImage(bitmap, full, QUALITY),
+      renderImage(bitmap, thumbDims, QUALITY),
     ]);
     return { blob, thumb, width: full.width, height: full.height };
   } finally {

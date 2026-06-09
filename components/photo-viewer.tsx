@@ -5,6 +5,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { ChevronLeft, ChevronRight, Trash2, X } from "lucide-react";
 import type { Photo } from "@/lib/types";
 import { useObjectUrls } from "@/lib/image/object-url";
+import { ensurePhotoBlob } from "@/lib/sync/orchestrator";
 import { tombstonePhoto } from "@/lib/db/photos";
 
 export function PhotoViewer({
@@ -21,6 +22,14 @@ export function PhotoViewer({
   const blobs = useMemo(() => photos.map((p) => p.blob), [photos]);
   const urls = useObjectUrls(blobs);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
+
+  // Full-size blob may not be cached yet for photos synced from another device.
+  // Fetch it on demand; the IndexedDB write re-fires the parent's live query.
+  const missing = photos.filter((p) => !p.blob).map((p) => p.guid).join(",");
+  useEffect(() => {
+    if (!missing) return;
+    for (const guid of missing.split(",")) void ensurePhotoBlob(guid);
+  }, [missing]);
 
   const count = photos.length;
   const go = (delta: number) => {

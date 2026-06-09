@@ -116,7 +116,7 @@ describe("compressImage (mocked canvas)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("rejects with WebP encoding error when Safari < 14 falls back to PNG", async () => {
+  it("falls back to JPEG on the <canvas> path when WebP isn't encodable (iOS Safari)", async () => {
     const close = vi.fn();
     vi.stubGlobal("OffscreenCanvas", undefined);
     vi.stubGlobal(
@@ -125,9 +125,10 @@ describe("compressImage (mocked canvas)", () => {
     );
 
     const drawImage = vi.fn();
-    const toBlob = vi.fn((cb: (b: Blob | null) => void) => {
-      // Simulate Safari < 14 silently falling back to PNG
-      cb(new Blob(["png"], { type: "image/png" }));
+    // iOS Safari ignores "image/webp" and yields PNG; the JPEG retry succeeds.
+    const toBlob = vi.fn((cb: (b: Blob | null) => void, type: string) => {
+      if (type === "image/webp") cb(new Blob(["png"], { type: "image/png" }));
+      else cb(new Blob(["jpeg"], { type: "image/jpeg" }));
     });
     const getContext = vi.fn(() => ({ drawImage }) as unknown as CanvasRenderingContext2D);
 
@@ -142,9 +143,41 @@ describe("compressImage (mocked canvas)", () => {
       createElement: vi.fn(() => canvasElement),
     } as unknown as Document);
 
-    await expect(compressImage(new Blob(["src"], { type: "image/png" }))).rejects.toThrow(
-      /WebP encoding unsupported/
+    const result = await compressImage(new Blob(["src"], { type: "image/png" }));
+
+    expect(result.blob.type).toBe("image/jpeg");
+    expect(result.thumb.type).toBe("image/jpeg");
+    // 2 renders × (webp attempt + jpeg retry) = 4 calls.
+    expect(toBlob).toHaveBeenCalledTimes(4);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("falls back to JPEG on the OffscreenCanvas path when WebP isn't encodable", async () => {
+    const close = vi.fn();
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(async () => ({ width: 3200, height: 1600, close }) as unknown as ImageBitmap),
     );
+    const drawImage = vi.fn();
+    const convertToBlob = vi.fn(async ({ type }: { type: string }) =>
+      type === "image/webp"
+        ? new Blob(["png"], { type: "image/png" })
+        : new Blob(["jpeg"], { type: "image/jpeg" }),
+    );
+    class FakeOffscreen {
+      constructor(public width: number, public height: number) {}
+      getContext() {
+        return { drawImage } as unknown as OffscreenCanvasRenderingContext2D;
+      }
+      convertToBlob = convertToBlob;
+    }
+    vi.stubGlobal("OffscreenCanvas", FakeOffscreen as unknown as typeof OffscreenCanvas);
+
+    const result = await compressImage(new Blob(["src"], { type: "image/png" }));
+
+    expect(result.blob.type).toBe("image/jpeg");
+    expect(result.thumb.type).toBe("image/jpeg");
 
     vi.unstubAllGlobals();
   });
